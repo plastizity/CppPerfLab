@@ -292,6 +292,16 @@
                 "tool_version": {
                   "type": "string",
                   "minLength": 1
+                },
+                "evidence_state": {
+                  "enum": [
+                    "Measured",
+                    "Estimated",
+                    "Modeled"
+                  ]
+                },
+                "evidence_version": {
+                  "const": 1
                 }
               },
               "required": [
@@ -367,6 +377,30 @@
     "evidence_directory": {
       "type": "string",
       "minLength": 1
+    },
+    "derived_observations": {
+      "type": "array",
+      "items": {
+        "$ref": "evidence.schema.json"
+      }
+    },
+    "unavailable_observations": {
+      "type": "array",
+      "items": {
+        "$ref": "evidence.schema.json"
+      }
+    },
+    "call_edges": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "allocation_sites": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
     }
   },
   "required": [

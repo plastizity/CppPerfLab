@@ -66,6 +66,9 @@ hotspots 的 sample 表示采样重复；不同重复的百分比不能相加。
 
 ## 人类：三类视图
 
+Each view also includes a dimension-wise summary. Multiple saved runs/comparisons
+can be collected into a summary view; see [multi-metric reporting](performance-summary.md).
+
 ```bash
 perflab report RUN_ID --format html --output results/run.html --json
 perflab compare BASELINE_ID CANDIDATE_ID --metric time.wall \

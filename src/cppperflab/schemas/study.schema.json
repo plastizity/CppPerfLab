@@ -91,6 +91,14 @@
     "constraints": {
       "type": "string",
       "minLength": 1
+    },
+    "secondary_metrics": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
     }
   },
   "required": [

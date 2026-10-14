@@ -34,6 +34,8 @@ source scripts/env.sh
 perflab doctor --json
 perflab tools list --json
 perflab schema request --json
+perflab metrics --domain D01 --json
+perflab metrics --metric cpu.ipc --json
 perflab plan --config workloads/locality-baseline.json --json
 ```
 
@@ -42,6 +44,13 @@ The registry gives metrics, prerequisites, overhead, mode and limitations. A mis
 executable, denied event or parser failure is not a zero metric. Configure a specific
 tool or `tool: auto` with required `goal.metrics`, an overhead budget and explicit
 instrumentation permission. Read plan candidates/reasons before selecting a path.
+
+For callable metric definitions, same-sample derivations and acceptance policies,
+read [metric evidence and acceptance](references/metrics.md). It also covers D01–D05
+call edges, heap allocation sites, cache models and Kernel work counters. The catalog describes
+implemented public metrics, not full domain coverage. D13/D15/D16/D17 are deferred;
+D14 numerical constraints remain required when relevant, but per-sample solver
+validation is not implemented by the current preflight oracle.
 
 ## Measure, interpret, compare
 
@@ -105,5 +114,5 @@ than silently changing its production code or algorithm dispatch.
 No available tool: report probe diagnostics, then explicitly choose another metric
 or collection strategy with its changed meaning. Never silently replace failed PMU
 data, manufacture bandwidth or infer waiting from on-CPU samples. Consult
-`docs/tool-research.md` / `docs/algorithm-tools.md` for assessed extensions rather
+`docs/tool-selection.md` for assessed extensions rather
 than installing overlapping tools or Skills. No global changes or remote scripts.

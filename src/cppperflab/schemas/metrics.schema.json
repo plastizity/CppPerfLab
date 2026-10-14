@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cppperflab:metrics:1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "metrics",
+    "note"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "note": {
+      "type": "string"
+    },
+    "metrics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "metric_id",
+          "definition_version",
+          "unit",
+          "domains",
+          "categories",
+          "mathematical_definition",
+          "measurement_scope",
+          "providers",
+          "source_capability"
+        ],
+        "properties": {
+          "metric_id": {
+            "type": "string"
+          },
+          "definition_version": {
+            "const": 1
+          },
+          "unit": {
+            "type": "string"
+          },
+          "domains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "Outcome",
+                "Diagnostic",
+                "Efficiency"
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

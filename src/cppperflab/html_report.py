@@ -79,12 +79,30 @@ def metrics_section(view):
     result = []
     for group in view["metrics"]:
         s = group["summary"]
-        result.append('<article><h3>' + esc(s["name"]) + '</h3><p>' + esc(s["unit"] + ' · ' + s["method"]) + '</p><p class="muted">范围：' + esc(s["scope"]) + '</p>')
+        source = ' · '+group['run_id'] if 'run_id' in group else ''
+        result.append('<article><h3>' + esc(s["name"]+source) + '</h3><p>' + esc(s["unit"] + ' · ' + s["method"]) + '</p><p class="muted">范围：' + esc(s["scope"]) + '</p>')
         result.append(table(['样本数', '中位数', '最小', '最大', 'CV'], [[esc(s["n"]), number(s["median"]), number(s["min"]), number(s["max"]), number(s["cv"])]]))
         series = [{"label": s["name"], "points": [(p["index"], p["value"]) for p in group["samples"]]}]
         result.append(line_plot(series, '重复样本序号', s["unit"]))
         result.append(details('查看所有原始样本值与证据 ID', group["samples"]) + '</article>')
     return ''.join(result) or '<p class="muted">该记录没有正常化计量样本。</p>'
+
+
+def performance_section(view):
+    summary = view['summary']
+    content = ['<p class="notice">工作量、指令执行质量、资源和耗时分别判断；不计算总分。指令数量减少不依赖 SIMD 或缓存指标，也不等同于实测加速。</p>']
+    content.append(table(['维度', '覆盖状态', '观测数', '比较数', '未采集指标'], [
+        [esc(d['title']), esc(d['coverage']), str(len(d['observations'])), str(len(d['comparisons'])),
+         esc(', '.join(d['missing_metrics']))] for d in summary['dimensions']]))
+    for finding in summary['findings']:
+        content.append('<article><p class="status">'+esc(finding['outcome'])+'</p><p>'+esc(finding['message'])+'</p>'+details('结论依据', finding)+'</article>')
+    for d in summary['dimensions']:
+        if d['observations']:
+            content.append(details(d['title']+'：观测与来源', d['observations']))
+    if summary['derived_metrics']:
+        content.append(details('配对硬件计数推导的 IPC', summary['derived_metrics']))
+    content.append(details('总结限制', summary['limitations']))
+    return ''.join(content)
 
 
 def hotspot_section(view):
@@ -137,7 +155,7 @@ def growth_section(view):
         content.append('<article><h3>' + esc(item["variant"]) + '</h3>')
         content.append(table(['规模', '中位数', '单位', '重复数', 'CV', 'Run ID'], [[esc(p["x"]), number(p["median"]), esc(p["unit"]), esc(p["n"]), number(p["cv"]), esc(p["run_id"])] for p in item["points"]]))
         if 'models' in item:
-            content.append(table(['候选模型', '系数', '截距', 'R²', '相对 RMSE', '留一预测相对 RMSE'], [[esc(m["model"]), number(m["scale_coefficient"]), number(m["intercept"]), number(m["r_squared"]), number(m["relative_rmse"]), number(m["leave_one_out_relative_rmse"])] for m in item["models"]]))
+            content.append(table(['候选模型', '拟合表达式', '系数', '截距', 'R²', '相对 RMSE', '留一预测相对 RMSE'], [[esc(m["model"]), esc(m['expression']) if 'expression' in m else '—', number(m["scale_coefficient"]), number(m["intercept"]), number(m["r_squared"]), number(m["relative_rmse"]), number(m["leave_one_out_relative_rmse"])] for m in item["models"]]))
         content.append(details('局部斜率、拟合限制及测量点', item) + '</article>')
     return ''.join(content)
 
@@ -186,10 +204,11 @@ def render_html(view, store, output):
     overview_rows = [[esc(key), esc(value) if not isinstance(value, (dict, list)) else details('展开', value)]
                      for key, value in view['overview'].items()]
     sections = [('overview', '概览', table(['项目', '记录值'], overview_rows) + details('运行及构建条件', view["conditions"])),
+                ('performance', '分析与总结', performance_section(view)),
                 ('quality', '可信度与限制', '<ul>' + quality + '</ul>' + '<ul>' + ''.join('<li>' + esc(x) + '</li>' for x in view["limitations"]) + '</ul>')]
     if view['error']:
-        sections[1] = (sections[1][0], sections[1][1], details('实验错误', view['error']) + sections[1][2])
-    if view['view_kind'] == 'run':
+        sections[2] = (sections[2][0], sections[2][1], details('实验错误', view['error']) + sections[2][2])
+    if view['view_kind'] in ('run', 'summary'):
         sections.extend([('metrics', '指标与样本', metrics_section(view)), ('hotspots', '采样热点', hotspot_section(view)),
                          ('reasoning', '事实与待验证假设', details('观测事实', view['facts']) + details('待验证假设', view['hypotheses']))])
     if view['view_kind'] == 'study':

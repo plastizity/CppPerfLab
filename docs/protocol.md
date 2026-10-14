@@ -96,3 +96,13 @@ run store and comparison engine. Growth-model fits are empirical and range-limit
 
 The next extension should be a validated external tuner using this evaluator;
 candidate generation, compilation and untrusted-code sandboxing are not implemented.
+
+## Additive core-metrics extension
+
+The implemented registry, evidence v1 extension, derived observations and optional
+comparison acceptance policy are specified in [core metrics](core-metrics.md).
+`schema metrics|evidence|policy` exposes their schemas. Existing result v1 records
+remain readable and are not rewritten. The six-state read projection only upgrades
+known existing adapter methods; unknown methods are not treated as measurements.
+Legacy comparison classifications retain their meaning; `acceptance.status` is the
+policy verdict. Correctness must now explicitly pass, not merely match across runs.

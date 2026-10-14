@@ -11,6 +11,7 @@ import random
 import statistics
 
 from .comparison import compare, MIN_COMPARISON_SAMPLES, MAX_COMPARISON_CV
+from .metrics import evidence_state
 from .errors import LabError
 from .lab import run
 from .protocol import fields, load_request, require, positive
@@ -48,6 +49,11 @@ def fit_growth(points):
     ns = [p["x"] for p in points]
     require(all(type(n) in (int, float) and math.isfinite(n) and n > 0 for n in ns)
             and len(ns) == len(set(ns)), "Scales must be positive, finite and unique")
+    semantic_keys = ('name','unit','method','scope')
+    if any(any(k in p for k in semantic_keys) for p in points):
+        require(all(all(k in p for k in semantic_keys) for p in points), 'Missing growth metric semantics')
+        require(len({tuple(p[k] for k in semantic_keys) for p in points})==1, 'Mixed growth metric semantics')
+    require(all(p.get('evidence_state','Measured')=='Measured' for p in points), 'Growth requires measured input points')
     ys = [p["median"] for p in points]
     require(all(math.isfinite(y) and y > 0 for y in ys), "Growth fitting requires positive finite measurements")
     variance = sum((y - statistics.mean(ys)) ** 2 for y in ys)
@@ -60,12 +66,21 @@ def fit_growth(points):
         for i in range(len(xs)):
             aa, bb = linear_fit(xs[:i] + xs[i + 1:], ys[:i] + ys[i + 1:])
             cross_errors.append(ys[i] - (aa * xs[i] + bb))
-        models.append({"model": name, "scale_coefficient": a, "intercept": b,
+        models.append({"model": name, "evidence_state":"Modeled", "scale_coefficient": a, "intercept": b,
+                       "expression": ({"constant": format(b, '.10g'),
+                                       "log_n": f"{a:.10g} * log(x) + {b:.10g}",
+                                       "n": f"{a:.10g} * x + {b:.10g}",
+                                       "n_log_n": f"{a:.10g} * x * log(x) + {b:.10g}",
+                                       "n_squared": f"{a:.10g} * x^2 + {b:.10g}",
+                                       "n_cubed": f"{a:.10g} * x^3 + {b:.10g}"})[name],
+                       "model_family": "polynomial" if name in ("constant", "n", "n_squared", "n_cubed") else "non_polynomial",
                        "r_squared": 1 - sum(r * r for r in residuals) / variance if variance else None,
                        "relative_rmse": math.sqrt(statistics.mean(r * r for r in residuals)) / statistics.mean(ys),
                        "leave_one_out_relative_rmse": math.sqrt(statistics.mean(r * r for r in cross_errors)) / statistics.mean(ys)})
     models.sort(key=lambda m: m["leave_one_out_relative_rmse"])
     slopes = [{"from": ns[i - 1], "to": ns[i],
+               "evidence_state":"Estimated", "growth_ratio":ys[i]/ys[i-1],
+               "source_run_ids":[points[i-1].get("run_id"),points[i].get("run_id")],
                "empirical_log_slope": math.log(ys[i] / ys[i - 1]) / math.log(ns[i] / ns[i - 1])} for i in range(1, len(ns))]
     warnings = ["Empirical models over the measured range only; not a Big-O proof.",
                 "Startup, oracle work, cache transitions and a limited size range can distort model ranking.",
@@ -74,7 +89,17 @@ def fit_growth(points):
         warnings.append("Fewer than five scales: model ranking is weak evidence.")
     if any(p["n"] < MIN_COMPARISON_SAMPLES or p.get("cv") is None or p["cv"] > MAX_COMPARISON_CV for p in points):
         warnings.append("Some scales have too few repeats or high noise; trend requires confirmation.")
+    point_quality=[{'x':p['x'],'run_id':p.get('run_id'),
+                    'sufficient_samples':p['n']>=MIN_COMPARISON_SAMPLES,
+                    'stable_samples':p.get('cv') is not None and p['cv']<=MAX_COMPARISON_CV} for p in points]
     return {"kind": "statistical_inference", "points": points, "models": models,
+            "quality":{'status':'PASS' if all(p['sufficient_samples'] and p['stable_samples'] for p in point_quality) else 'INCONCLUSIVE',
+                       'points':point_quality,'policy':{'min_samples':MIN_COMPARISON_SAMPLES,'max_cv':MAX_COMPARISON_CV},
+                       'meaning':'Measurement screening only, not proof that the best growth model is correct'},
+            "doubling_ratios": [{"from":ns[i], "to":ns[j], "value":ys[j]/ys[i],
+                                 "name":"algorithm.doubling_ratio", "evidence_state":"Estimated",
+                                 "source_run_ids":[points[i].get("run_id"),points[j].get("run_id")]}
+                                for i in range(len(ns)) for j in range(i+1,len(ns)) if ns[j]==2*ns[i]],
             "local_slopes": slopes, "measured_range": [ns[0], ns[-1]], "limitations": warnings}
 
 
@@ -84,10 +109,13 @@ def load_study(path):
         spec = json.loads(path.read_text())
     except (ValueError, OSError) as error:
         raise LabError("invalid_request", "Cannot read study", {"reason": str(error)}) from error
-    fields(spec, ("schema_version", "name", "template", "axis", "variants", "budget", "seed", "metric", "constraints"),
+    fields(spec, ("schema_version", "name", "template", "axis", "variants", "budget", "seed", "metric", "constraints", "secondary_metrics"),
            ("schema_version", "name", "template", "axis", "variants", "budget", "seed", "metric", "constraints"), "study")
     require(type(spec["schema_version"]) is int and spec["schema_version"] == 1, "Unsupported study schema")
     require(all(isinstance(spec[k], str) and spec[k] for k in ("name", "template", "metric", "constraints")), "study textual fields must be nonempty")
+    secondary=spec.get('secondary_metrics',[])
+    require(isinstance(secondary,list) and all(isinstance(v,str) and v for v in secondary)
+            and len(set(secondary))==len(secondary) and spec['metric'] not in secondary, 'secondary_metrics must be distinct IDs excluding the primary metric')
     positive(spec["budget"], "budget", integer=True)
     require(type(spec["seed"]) is int, "seed must be an integer")
     spec["template"] = str((path.parent / spec["template"]).resolve())
@@ -120,7 +148,7 @@ def study(path, store):
     spec, template = load_study(path)
     identifier, directory = store.create("studies")
     result = {"schema_version": 1, "study_id": identifier, "status": "running", "spec": spec,
-              "started_at": utc(), "runs": [], "comparisons": [], "growth": {}, "error": None}
+              "started_at": utc(), "runs": [], "comparisons": [], "growth": {}, "secondary_growth": {}, "error": None}
     write_json(directory / "study.json", result)
     jobs = [(variant, value) for value in spec["axis"]["values"] for variant in spec["variants"]]
     random.Random(spec["seed"]).shuffle(jobs)
@@ -144,14 +172,21 @@ def study(path, store):
             if measured["status"] != "completed":
                 raise LabError(measured["error"]["category"], "Candidate rejected; no score assigned", {"run_id": measured["run_id"], "error": measured["error"]})
             results[(variant["id"], scale)] = measured
-        for variant in spec["variants"]:
-            points = []
-            for scale in spec["axis"]["values"]:
-                measured = results[(variant["id"], scale)]
-                summaries = [s for s in measured["summary"] if s["name"] == spec["metric"]]
-                require(len(summaries) == 1, "Study metric missing or has mixed semantics")
-                points.append({"x": scale, "run_id": measured["run_id"], **summaries[0]})
-            result["growth"][variant["id"]] = fit_growth(points) if len(points) >= 4 else {"points": points, "limitations": ["Need at least four scales for fitting"]}
+        for metric_name in [spec['metric'],*spec.get('secondary_metrics',[])]:
+            destination=result['growth'] if metric_name==spec['metric'] else result['secondary_growth'].setdefault(metric_name,{})
+            for variant in spec['variants']:
+                points=[]
+                for scale in spec['axis']['values']:
+                    measured=results[(variant['id'],scale)]
+                    entries=[[m for m in sample['metrics'] if m['name']==metric_name] for sample in measured['samples']]
+                    require(bool(entries) and all(len(row)==1 for row in entries),'Study metric missing or duplicated in a sample: '+metric_name)
+                    require(all(evidence_state(row[0])=='Measured' and
+                                (row[0]['method']!='hardware-counter' or 99<=row[0].get('running_percent',0)<=100)
+                                for row in entries),'Study requires measured, full-coverage observations')
+                    summaries=[s for s in measured['summary'] if s['name']==metric_name]
+                    require(len(summaries)==1,'Study metric missing or has mixed semantics')
+                    points.append({'x':scale,'run_id':measured['run_id'],**summaries[0]})
+                destination[variant['id']]=fit_growth(points) if len(points)>=4 else {'points':points,'limitations':['Need at least four scales for fitting']}
         first = spec["variants"][0]["id"]
         for scale in spec["axis"]["values"]:
             for variant in spec["variants"][1:]:

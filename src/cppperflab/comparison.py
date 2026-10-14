@@ -1,6 +1,10 @@
 """Conservative comparisons of semantically identical metrics, with raw samples."""
 import random
 import statistics
+import math
+
+from .metrics import metric_samples, evidence_state, DEFINITIONS, DERIVATIONS
+from .protocol import require, fields
 
 from .errors import LabError
 
@@ -8,8 +12,52 @@ MIN_COMPARISON_SAMPLES = 7
 MAX_COMPARISON_CV = .10
 
 
+def validate_policy(policy):
+    fields(policy, ('schema_version','min_samples','max_cv','max_regression_fraction','min_speedup','direction'),
+           ('schema_version','min_samples','max_cv','max_regression_fraction'), 'acceptance policy')
+    require(type(policy['schema_version']) is int and policy['schema_version']==1, 'Unsupported policy version')
+    require(type(policy['min_samples']) is int and policy['min_samples']>=2, 'min_samples must be >= 2')
+    for key in ('max_cv','max_regression_fraction','min_speedup'):
+        if key in policy:
+            require(type(policy[key]) in (int,float) and math.isfinite(policy[key]) and
+                    (policy[key]>0 if key=='min_speedup' else policy[key]>=0), 'Invalid '+key)
+    require(policy.get('direction','lower') in ('lower','higher'), 'Invalid direction')
+    return dict(policy)
+
+
+def acceptance(result, policy, direction):
+    if direction == 'none':
+        return {'status':'INCONCLUSIVE', 'reason':'Diagnostic metric has no acceptance direction; declare a metric-specific policy.'}
+    if not result['sufficient_samples'] or not result['stable_samples']:
+        return {'status':'INCONCLUSIVE', 'reason':'Sample count or variability does not meet policy.'}
+    lo,hi = result['bootstrap_95_percent_speedup']
+    if direction=='higher':
+        lo,hi=1/hi,1/lo
+    threshold=(1-policy['max_regression_fraction'] if direction=='higher' else 1/(1+policy['max_regression_fraction']))
+    if hi < threshold:
+        return {'status':'FAIL','reason':'Confirmed material regression','benefit_interval':[lo,hi]}
+    if lo < threshold:
+        return {'status':'INCONCLUSIVE','reason':'Regression bound is uncertain','benefit_interval':[lo,hi]}
+    if 'min_speedup' in policy:
+        if hi < policy['min_speedup']:
+            return {'status':'FAIL','reason':'Performance target not reached','benefit_interval':[lo,hi]}
+        if lo < policy['min_speedup']:
+            return {'status':'INCONCLUSIVE','reason':'Performance target interval crosses threshold','benefit_interval':[lo,hi]}
+    return {'status':'PASS','reason':'Correctness, comparability, statistical and declared performance gates passed',
+            'benefit_interval':[lo,hi]}
+
+
 def compare(a, b, metric_name="time.wall", allow_command_change=False,
-            regression_fraction=0.05):
+            regression_fraction=0.05, policy=None):
+    policy = validate_policy(policy if policy is not None else {"schema_version":1, "min_samples":MIN_COMPARISON_SAMPLES,
+                             "max_cv":MAX_COMPARISON_CV, "max_regression_fraction":regression_fraction})
+    direction = policy.get("direction", DEFINITIONS.get(metric_name, {}).get("expected_direction", "none"))
+    correctness = [r["correctness"]["status"] for r in (a,b)]
+    if any(state != "passed" for state in correctness):
+        state = "FAIL" if "failed" in correctness else ("UNSUPPORTED" if any(
+            (r.get("error") or {}).get("category") in ("unavailable","permission_denied") for r in (a,b)) else "INCONCLUSIVE")
+        raise LabError("incomparable", "Correctness must pass before performance scoring",
+                       {"acceptance": {"status":state, "reason":"correctness gate"}, "correctness":correctness})
     differences = []
     def same(label, left, right):
         if left != right:
@@ -35,29 +83,42 @@ def compare(a, b, metric_name="time.wall", allow_command_change=False,
         same("target.arguments", a["request"]["target"]["argv"][1:], b["request"]["target"]["argv"][1:])
     same("correctness", a["correctness"]["status"], b["correctness"]["status"])
     same("oracle.description", a["request"]["correctness"]["description"], b["request"]["correctness"]["description"])
-    collections = [[m for s in r["samples"] for m in s["metrics"] if m["name"] == metric_name] for r in (a, b)]
+    if metric_name not in DERIVATIONS:
+        for r in (a,b):
+            if any(sum(m['name']==metric_name for m in sample['metrics'])!=1 for sample in r['samples']):
+                differences.append({'condition':'missing_or_duplicate_metric_in_sample', 'run_id':r['run_id'], 'metric':metric_name})
+    collections = [metric_samples(r, metric_name) for r in (a, b)]
+    states = [evidence_state(m) for values in collections for m in values]
+    if any(state != "Measured" for state in states):
+        verdict = "UNSUPPORTED" if "Unsupported" in states else "INCONCLUSIVE"
+        raise LabError("incomparable", "Acceptance requires measured evidence",
+                       {"acceptance":{"status":verdict,"reason":"non-measured evidence"}, "evidence_states":states})
     if any(not values for values in collections):
         differences.append({"condition": "missing_metric", "metric": metric_name})
     else:
-        meanings = [{(m["unit"], m["method"], m["scope"]) for m in values} for values in collections]
+        meanings = [{(m["unit"], m["method"], m["scope"], m.get("event", ""),
+                       tuple((v["name"],v["unit"],v["method"],v["scope"],v.get("event",""))
+                             for v in (m.get("sources",[]) if isinstance(m.get("sources",[]),list) else [])),
+                       m.get('source_counter',''), m.get('operation_count'), m.get('counter_contract','')) for m in values} for values in collections]
         same("metric_semantics", sorted(meanings[0]), sorted(meanings[1]))
         if any(len(x) != 1 for x in meanings):
             differences.append({"condition": "mixed_metric_semantics"})
-        if any(m.get("running_percent", 100) < 99 for values in collections for m in values):
+        if any((m["method"]=="hardware-counter" and not 99 <= m.get("running_percent",0) <= 100)
+               or m.get("running_percent",100) < 99 for values in collections for m in values):
             differences.append({"condition": "incomplete_counter_running_time"})
     if differences:
         raise LabError("incomparable", "Measurement conditions differ", {"differences": differences})
     av, bv = [[m["value"] for m in values] for values in collections]
+    if any(type(x) not in (int,float) or not math.isfinite(x) or x <= 0 for values in (av,bv) for x in values):
+        raise LabError("incomparable", "Ratio comparison requires positive finite samples")
     am, bm = statistics.median(av), statistics.median(bv)
-    if am <= 0 or bm <= 0:
-        raise LabError("incomparable", "Ratios require positive medians")
     rng = random.Random(1014)
     ratios = sorted(statistics.median(rng.choices(av, k=len(av))) /
                     statistics.median(rng.choices(bv, k=len(bv))) for _ in range(5000))
     ci = [ratios[125], ratios[4874]]
     cv = [statistics.stdev(v) / statistics.mean(v) if len(v) > 1 else None for v in (av, bv)]
-    sufficient = min(len(av), len(bv)) >= MIN_COMPARISON_SAMPLES
-    stable = all(v is not None and v <= MAX_COMPARISON_CV for v in cv)
+    sufficient = min(len(av), len(bv)) >= policy["min_samples"]
+    stable = all(v is not None and v <= policy["max_cv"] for v in cv)
     if not sufficient or not stable:
         classification = "inconclusive"
     elif ci[1] < 1 / (1 + regression_fraction):
@@ -66,13 +127,13 @@ def compare(a, b, metric_name="time.wall", allow_command_change=False,
         classification = "observed_improvement"
     else:
         classification = "no_clear_change"
-    return {"schema_version": 1, "baseline_id": a["run_id"], "candidate_id": b["run_id"],
+    result = {"schema_version": 1, "baseline_id": a["run_id"], "candidate_id": b["run_id"],
             "comparable": True, "metric": metric_name, "unit": collections[0][0]["unit"],
             "baseline_samples": av, "candidate_samples": bv, "baseline_median": am,
             "candidate_median": bm, "speedup": am / bm, "change_fraction": bm / am - 1,
             "bootstrap_95_percent_speedup": ci, "coefficient_of_variation": cv,
             "classification": classification, "sufficient_samples": sufficient, "stable_samples": stable,
-            "policy": {"min_samples": MIN_COMPARISON_SAMPLES, "max_cv": MAX_COMPARISON_CV, "material_fraction": regression_fraction,
+            "policy": {"min_samples": policy["min_samples"], "max_cv": policy["max_cv"], "material_fraction": regression_fraction,
                        "bootstrap_resamples": 5000, "seed": 1014, "paired": False},
             "treatment": {"baseline_argv": a["request"]["target"]["argv"],
                           "candidate_argv": b["request"]["target"]["argv"],
@@ -81,6 +142,16 @@ def compare(a, b, metric_name="time.wall", allow_command_change=False,
                           "command_change_acknowledged": allow_command_change},
             "limitations": ["Unpaired bootstrap is descriptive and cannot remove thermal/load/order drift.",
                             "An observed improvement is not automatic optimization acceptance; repeat interleaved A/B and review oracle coverage."]}
+
+    result['acceptance_policy'] = policy
+    result['acceptance'] = acceptance(result,policy,direction)
+    result['evidence_state'] = 'Estimated'
+    result['input_evidence_state'] = 'Measured'
+    result['correctness_status'] = 'passed'
+    result['ratio_semantics'] = 'baseline / candidate; not a runtime speedup unless a time metric'
+    result['runtime_reduction'] = 1-bm/am if metric_name.startswith('time.') else None
+    result['regression_status'] = result['acceptance']['status']
+    return result
 
 
 def analyze(result):

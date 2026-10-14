@@ -13,3 +13,6 @@ tools.local.json
 .codex/
 .agents/
 CMakeUserPresets.json
+
+# Local implementation plan
+/docs/performance-expansion-plan-local.md

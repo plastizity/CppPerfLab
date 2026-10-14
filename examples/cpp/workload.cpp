@@ -67,9 +67,22 @@ int main(int argc, char** argv) {
             checksum = expected;
         } else if (kind == "allocations") {
             for (std::size_t repeat = 0; repeat < repetitions; ++repeat) {
+                U64 expected = 0;
+#if CONTIGUOUS_ALLOCATION
+                std::size_t total = 0;
+                for (std::size_t i = 0; i < n; ++i) total += 16 + i % 64;
+                std::vector<U64> values;
+                values.reserve(total);
+                for (std::size_t i = 0; i < n; ++i) {
+                    const std::size_t count = 16 + i % 64;
+                    expected += count * (i + repeat);
+                    for (std::size_t j = 0; j < count; ++j) values.push_back(i + repeat);
+                }
+                U64 result = 0;
+                for (auto value : values) result += value;
+#else
                 std::vector<std::vector<U64>> blocks;
                 blocks.reserve(n);
-                U64 expected = 0;
                 for (std::size_t i = 0; i < n; ++i) {
                     const std::size_t count = 16 + i % 64;
                     blocks.emplace_back(count, i + repeat);
@@ -77,6 +90,7 @@ int main(int argc, char** argv) {
                 }
                 U64 result = 0;
                 for (const auto& block : blocks) for (auto value : block) result += value;
+#endif
                 if (result != expected) return 2;
                 checksum += result;
             }

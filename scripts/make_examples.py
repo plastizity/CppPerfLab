@@ -67,6 +67,26 @@ save("algorithm-study", {"schema_version": 1, "name": "pair-count-algorithm-grow
      "constraints": "Count all equal unordered pairs exactly; no fixture recognition, no approximate equality, same data generator and seeds. Candidate sorting may mutate only its private input."})
 print(output)
 
+# Paired native hardware-counter experiments for dimension-wise reporting.
+for label in ('baseline', 'candidate'):
+    counters = copy.deepcopy(algorithm)
+    counters['name'] = 'pair-counters-'+label
+    counters['workload']['parameters']['n'] = 1024
+    counters['target']['argv'] = [str(binary/('pairs_'+label)), '1024', '64', 'random']
+    counters['correctness']['argv'][-1] = counters['target']['argv'][0]
+    counters['measurement'].update(tool='perf-stat', repetitions=9, warmups=2,
+                                   options={'events':['instructions','cycles','duration_time']})
+    save('pair-counters-'+label, counters)
+
+instruction_template = copy.deepcopy(algorithm)
+instruction_template['measurement'].update(tool='perf-stat', repetitions=9, warmups=1,
+                                           options={'events':['instructions','cycles']})
+save('instruction-template', instruction_template)
+instruction_study = json.loads((output/'algorithm-study.json').read_text())
+instruction_study.update(name='pair-count-instruction-growth',template='instruction-template.json',
+                         metric='cpu.instructions')
+save('instruction-study', instruction_study)
+
 # Integrated benchmark targets are optional; configurations are useful only after
 # building with PERFLAB_GOOGLE_BENCHMARK_ROOT as described in docs/downloads.md.
 for label in ("baseline", "candidate"):

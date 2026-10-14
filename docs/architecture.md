@@ -1,12 +1,10 @@
 # Architecture and implementation gates
 
-## State and incremental scope
+## Scope
 
-The initial interrupted workspace contained `tools/perfctl.py` and calibration
-drafts, not a finished platform. Those drafts were replaced once by the current
-package; old `results/` remain historical, not acceptance evidence. No business
-repository was modified. The later algorithm request extends this same package
-through `studies.py`; it does not create another measurement protocol or scheduler.
+The platform orchestrates trusted external tools and reviewed prebuilt candidates.
+Algorithm studies extend the same run/measurement/storage contracts rather than
+creating another benchmark scheduler or experimental database.
 
 ## Dependency DAG and gates
 
@@ -44,7 +42,7 @@ operation; installed paths still require actual probes. See `analysis-views.md`.
 
 - Python 3.11 standard library: readable orchestration, safe argv and JSON without
   numerical/package dependency sprawl. C++ appears only in independent fixtures.
-  Offline zipapp avoids the observed missing `wheel` and shell DNS restriction.
+  Offline zipapp provides project-local installation without package downloads.
 - External mature profilers: no custom sampling, allocator interposition or timer
   kernel. Hyperfine owns repetition/timing; perf owns event counting/sampling;
   Valgrind owns heap instrumentation. Separate native formats remain archived.
@@ -70,4 +68,4 @@ tool operations and metric provenance separate without recreating Caliper servic
 Thicket motivates retaining experimental dimensions and run identity before
 aggregation. Perfetto motivates preserving typed time/track evidence instead of
 flattening all future traces into a duration. These are design influences, not
-installed dependencies; sources and boundaries are in the research documents.
+installed dependencies; integration boundaries are in `tool-selection.md`.

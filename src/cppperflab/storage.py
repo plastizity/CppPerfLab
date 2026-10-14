@@ -36,7 +36,8 @@ class Store:
         if not re.fullmatch(r"\d{8}T\d{6}-[0-9a-f]{12}", identifier):
             raise LabError("invalid_request", "Invalid run ID")
         records = {"run": ("runs", "result.json"), "study": ("studies", "study.json"),
-                   "comparison": ("comparisons", "comparison.json")}
+                   "comparison": ("comparisons", "comparison.json"),
+                   "summary": ("summaries", "summary.json")}
         if kind not in records:
             raise LabError("invalid_request", "Unknown record kind")
         folder, filename = records[kind]

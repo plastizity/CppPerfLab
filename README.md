@@ -100,6 +100,19 @@ See [analysis views and local tool configuration](docs/analysis-views.md) for
 query pagination, evidence integrity, comparison failure semantics and HTML controls.
 `analyze` defaults to an overview; use `--section all` for the complete view.
 
+Dimension-wise summaries separate work reduction, resource use, instruction
+quality, timing and correctness. Missing measurements remain explicit gaps:
+
+```bash
+perflab analyze RUN_ID --section summary --json
+perflab summarize --comparison INSTRUCTION_COMPARISON_ID \
+  --comparison TIME_COMPARISON_ID --format html --output /tmp/perflab-summary.html --json
+perflab analyze SUMMARY_ID --kind summary --section summary --json
+```
+
+See [multi-metric summaries](docs/performance-summary.md) for paired-counter IPC,
+independent conclusions, numeric/SIMD coverage and empirical growth expressions.
+
 `perflab schema request|result|envelope --json` exposes versioned JSON schemas.
 Request configuration is JSON; YAML is deliberately not supported in v1.
 `--json` returns `{schema_version, ok, result, error}`. Errors have categories,
@@ -135,7 +148,7 @@ ctest --preset check
 [C++ Algorithm Performance Engineering Skill](skills/cpp-performance/SKILL.md).
 The session's `.agents` directory is read-only: AGENTS routing is used instead of
 claiming automatic skill-catalog registration. See [architecture](docs/architecture.md),
-[tool research](docs/tool-research.md), [algorithm research](docs/algorithm-tools.md)
+[tool selection](docs/tool-selection.md)
 and [acceptance evidence](docs/acceptance.md) for decisions and verified scope.
 
 ## Boundaries
@@ -153,5 +166,16 @@ and [acceptance evidence](docs/acceptance.md) for decisions and verified scope.
 Platform source is MIT licensed. External executables retain their own licenses;
 they are optional tools rather than bundled runtime dependencies.
 
-Google Benchmark v1.9.4 integrated-target timing is verified; see
-[acceptance and reproducible commands](docs/google-benchmark-acceptance.md).
+Google Benchmark v1.9.4 integrated-target timing is verified; build steps are in
+[local dependencies](docs/downloads.md), and verification scope is in
+[acceptance](docs/acceptance.md).
+
+## Core metrics and configurable acceptance
+
+`perflab metrics --domain D01 --json` queries implemented metric semantics and providers.
+`analyze RUN_ID --section observations` exposes six-state evidence and same-sample
+IPC/CPI/branch formulas. `compare A B --policy POLICY.json` applies explicit acceptance
+gates through the existing comparison engine. See [core metrics](docs/core-metrics.md)
+for protocols, actual commands, compatibility and the serial validation driver.
+
+[D01–D05 callable extensions](docs/domains-1-5.md) document instrumented call/heap profiles, modeled cache analysis, explicit Kernel work rates and shared-run time/space growth. Reproduce with `scripts/validate_domains_1_5.py` after an explicit example build.

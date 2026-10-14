@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cppperflab:policy:1",
+  "title": "Comparison acceptance policy v1",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "min_samples": {
+      "type": "integer",
+      "minimum": 2
+    },
+    "max_cv": {
+      "type": "number",
+      "minimum": 0
+    },
+    "max_regression_fraction": {
+      "type": "number",
+      "minimum": 0
+    },
+    "min_speedup": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "direction": {
+      "enum": [
+        "lower",
+        "higher"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "min_samples",
+    "max_cv",
+    "max_regression_fraction"
+  ],
+  "additionalProperties": false
+}

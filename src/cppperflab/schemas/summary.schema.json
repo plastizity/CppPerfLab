@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cppperflab:summary:1",
+  "title": "CppPerfLab saved summary references v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "summary_id": {
+      "type": "string",
+      "pattern": "^\\d{8}T\\d{6}-[0-9a-f]{12}$"
+    },
+    "run_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^\\d{8}T\\d{6}-[0-9a-f]{12}$"
+      },
+      "uniqueItems": true
+    },
+    "comparison_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^\\d{8}T\\d{6}-[0-9a-f]{12}$"
+      },
+      "uniqueItems": true
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "failed"
+      ]
+    },
+    "error": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "source_errors": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "summary_id",
+    "run_ids",
+    "comparison_ids",
+    "status",
+    "error",
+    "source_errors"
+  ]
+}

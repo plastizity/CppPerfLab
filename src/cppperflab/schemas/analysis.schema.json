@@ -11,7 +11,8 @@
       "enum": [
         "run",
         "study",
-        "comparison"
+        "comparison",
+        "summary"
       ]
     },
     "record_id": {
@@ -171,6 +172,80 @@
       }
     },
     "comparisons": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "dimensions",
+        "findings",
+        "derived_metrics",
+        "overall_score",
+        "optimization_accepted",
+        "limitations"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "dimensions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title",
+              "coverage",
+              "observations",
+              "comparisons",
+              "missing_metrics"
+            ]
+          }
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "derived_metrics": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "overall_score": {
+          "type": "null"
+        },
+        "optimization_accepted": {
+          "const": false
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "observations": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "call_edges": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "allocation_sites": {
       "type": "array",
       "items": {
         "type": "object"

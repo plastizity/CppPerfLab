@@ -11,7 +11,8 @@
       "enum": [
         "run",
         "study",
-        "comparison"
+        "comparison",
+        "summary"
       ]
     },
     "record_id": {
@@ -47,7 +48,11 @@
         "facts",
         "hypotheses",
         "growth",
-        "comparisons"
+        "comparisons",
+        "summary",
+        "observations",
+        "call_edges",
+        "allocation_sites"
       ]
     },
     "data": {
@@ -75,7 +80,11 @@
           "facts",
           "hypotheses",
           "growth",
-          "comparisons"
+          "comparisons",
+          "summary",
+          "observations",
+          "call_edges",
+          "allocation_sites"
         ]
       }
     },

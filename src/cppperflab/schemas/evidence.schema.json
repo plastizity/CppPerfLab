@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cppperflab:evidence:1",
+  "title": "Evidence observation v1",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence_version": {
+      "const": 1
+    },
+    "evidence_state": {
+      "enum": [
+        "Measured",
+        "Estimated",
+        "Modeled",
+        "Unsupported",
+        "Missing",
+        "Invalid"
+      ]
+    },
+    "value": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "name",
+    "evidence_version",
+    "evidence_state",
+    "value"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "evidence_state": {
+            "enum": [
+              "Measured",
+              "Estimated",
+              "Modeled"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "value": {
+            "type": "number"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "value": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      }
+    }
+  ],
+  "additionalProperties": true
+}

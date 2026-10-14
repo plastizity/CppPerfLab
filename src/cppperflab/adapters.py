@@ -3,6 +3,7 @@
 No adapter executes shell strings. Tools keep their own metric semantics.
 """
 import csv
+import math
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +17,7 @@ from .errors import LabError
 from .execution import execute, check_execution
 from .protocol import metric, require
 from .tool_config import configured_tool
+from .valgrind_profiles import parse_cachegrind, parse_dhat, parse_callgrind, CACHE_EVENTS, CACHE_RATIOS, DHAT_FIELDS
 
 
 EVENTS = {
@@ -55,7 +57,16 @@ def parse_hyperfine(path):
                         "Target output is retained from correctness/preflight; Hyperfine timing output uses a pipe."]}
 
 
-def parse_google_benchmark(path):
+BENCHMARK_WORK = {
+    'useful_flops': ('kernel.useful_flops', 'FLOP'),
+    'logical_bytes': ('kernel.logical_input_bytes', 'bytes'),
+    'operations': ('algorithm.operations', 'count'),
+}
+BENCHMARK_WORK_METRICS = tuple(v[0] for v in BENCHMARK_WORK.values()) + (
+    'kernel.useful_flop_rate', 'kernel.logical_arithmetic_intensity', 'workload.throughput')
+
+
+def parse_google_benchmark(path, counters=None):
     raw = json.loads(Path(path).read_text())
     samples, names = [], set()
     for row in raw["benchmarks"]:
@@ -69,10 +80,37 @@ def parse_google_benchmark(path):
         if row["time_unit"] not in factors or row["iterations"] <= 0:
             raise LabError("parse_failed", "Invalid Google Benchmark unit/iterations")
         factor = factors[row["time_unit"]]
-        samples.append([metric("time.iteration.wall", row["real_time"] * factor, "seconds",
+        items = [metric("time.iteration.wall", row["real_time"] * factor, "seconds",
                                "in-process-benchmark", "per iteration of " + name, path.name),
                         metric("time.iteration.cpu", row["cpu_time"] * factor, "seconds",
-                               "in-process-benchmark", "per iteration of " + name, path.name)])
+                               "in-process-benchmark", "per iteration of " + name, path.name)]
+        work={}
+        for key,field in (counters or {}).items():
+            check_value=row.get(field)
+            if (type(check_value) not in (int,float) or not math.isfinite(check_value)
+                    or check_value<0 or (key=='operations' and check_value==0)):
+                raise LabError('parse_failed','Missing/invalid declared per-iteration counter',{'field':field})
+            work[key]=check_value
+            metric_name,unit=BENCHMARK_WORK[key]
+            items.append(metric(metric_name,check_value,unit,'target-per-iteration-count',items[0]['scope'],path.name,
+                                source_counter=field,counter_contract='plain target-defined count per timed iteration; no rate/total flags'))
+        if work:
+            wall=items[0]['value']
+            if wall<=0:
+                raise LabError('parse_failed','Work rates require positive iteration time')
+            for key,output,unit in [('useful_flops','kernel.useful_flop_rate','FLOP/s'),('operations','workload.throughput','operation/s')]:
+                if key in work:
+                    items.append(metric(output,work[key]/wall,unit,'paired-benchmark-work-rate',items[0]['scope'],path.name,
+                                        sources={'counter':(counters or {})[key], 'work':work[key],'wall_seconds':wall},
+                                        limitations=['Target-defined useful algorithm work, not hardware-retired FP instructions.']))
+            if 'useful_flops' in work and 'logical_bytes' in work:
+                if work['logical_bytes']<=0:
+                    raise LabError('parse_failed','Logical intensity requires positive logical input bytes')
+                items.append(metric('kernel.logical_arithmetic_intensity',work['useful_flops']/work['logical_bytes'],'FLOP/byte',
+                                    'algorithm-logical-traffic-model',items[0]['scope'],path.name,evidence_state='Modeled',
+                                    sources={'useful_flops':work['useful_flops'],'logical_bytes':work['logical_bytes']},
+                                    limitations=['Logical input traffic model; not measured DRAM arithmetic intensity or Roofline.']))
+        samples.append(items)
     if len(names) != 1 or not samples:
         raise LabError("parse_failed", "Filter must select exactly one Google Benchmark case")
     return {"metrics": [], "samples": samples, "hotspots": [], "unavailable_metrics": [],
@@ -102,6 +140,8 @@ def parse_stat(path, events):
             running = float(row[4])
         except ValueError as error:
             raise LabError("parse_failed", "Malformed perf CSV", {"row": row}) from error
+        if not 0 <= running <= 100 or count < 0:
+            raise LabError("parse_failed", "Invalid perf count or running coverage", {"row":row})
         name, unit, method = EVENTS[event]
         # perf --no-scale + CSV reports clock events in raw ns (unit empty).
         # Some perf releases label clocks msec; preserve conversion explicitly.
@@ -119,7 +159,10 @@ def parse_stat(path, events):
                               limitations=["unscaled count; incomplete running time is not extrapolated"] if running < 99 else []))
     if seen != set(events):
         raise LabError("parse_failed", "Missing perf events", {"missing": sorted(set(events) - seen)})
-    return {"metrics": metrics, "unavailable_metrics": unavailable, "hotspots": []}
+    return {"metrics": metrics, "unavailable_metrics": unavailable, "hotspots": [],
+            "unavailable_observations": [{**item, "name":EVENTS[item['event']][0],
+                "evidence_state":"Unsupported" if "not supported" in item['reason'] else "Invalid",
+                "evidence_version":1, "value":None, "evidence":path.name} for item in unavailable]}
 
 
 def parse_massif(path):
@@ -195,9 +238,32 @@ class Adapter:
                 "operations": ["describe", "probe", "validate", "prepare", "parse"],
                 "parser_version": 1}
 
+    def configured_metrics(self, options):
+        if self.id=='perf-stat':return [EVENTS[e][0] for e in options.get('events',['duration_time'])]
+        if self.id=='dhat' and 'operation_count' not in options:
+            return list(DHAT_FIELDS)
+        if self.id=='google-benchmark':
+            result=['time.iteration.wall','time.iteration.cpu']
+            keys=set(options.get('counters',{}))
+            result += [BENCHMARK_WORK[k][0] for k in keys]
+            if 'useful_flops' in keys:result.append('kernel.useful_flop_rate')
+            if 'operations' in keys:result.append('workload.throughput')
+            if {'useful_flops','logical_bytes'} <= keys:result.append('kernel.logical_arithmetic_intensity')
+            return result
+        return list(self.metrics)
+
     def validate(self, options):
-        allowed = {"google-benchmark": {"filter", "min_time_seconds", "warmup_seconds"}, "hyperfine": set(), "perf-stat": {"events"}, "perf-record": {"frequency"}, "massif": set()}[self.id]
+        allowed = {"google-benchmark": {"filter", "min_time_seconds", "warmup_seconds", "counters"}, "hyperfine": set(), "perf-stat": {"events"}, "perf-record": {"frequency"}, "massif": set(), "callgrind": set(), "dhat": {"operation_count"}, "cachegrind": {"I1","D1","LL"}}[self.id]
         require(not set(options) - allowed, self.id + ": unsupported options " + str(set(options) - allowed))
+        if self.id=='dhat' and 'operation_count' in options:
+            from .protocol import positive
+            positive(options['operation_count'],'operation_count',integer=True)
+        if self.id=='cachegrind':
+            for value in options.values():
+                require(isinstance(value,list) and len(value)==3 and all(type(v) is int and v>0 for v in value), 'Cache geometry is [size,associativity,line_bytes]')
+                size,ways,line=value
+                require(size%(ways*line)==0 and line&(line-1)==0 and (size//(ways*line))&((size//(ways*line))-1)==0,
+                        'Cache sets and line bytes must be powers of two; size divisible by ways * line bytes')
         if self.id == "perf-stat":
             events = options.get("events", ["duration_time"])
             require(isinstance(events, list) and bool(events) and all(isinstance(x, str) for x in events)
@@ -210,6 +276,11 @@ class Adapter:
             require(isinstance(options.get("filter"), str) and bool(options["filter"]), "Google Benchmark needs an explicit case filter")
             positive(options.get("min_time_seconds", .1), "min_time_seconds")
             positive(options.get("warmup_seconds", 0), "warmup_seconds", zero=True)
+            counters=options.get('counters',{})
+            require(isinstance(counters,dict) and set(counters)<=set(BENCHMARK_WORK), 'Unknown benchmark work counter semantics')
+            require(all(isinstance(v,str) and re.fullmatch(r'[A-Za-z_][A-Za-z_0-9]*',v) and
+                        v not in {'real_time','cpu_time','iterations','time_unit'} for v in counters.values()),'Invalid benchmark counter field')
+            require(len(set(counters.values()))==len(counters), 'One target field cannot have multiple work meanings')
 
     def prepare(self, command, directory, options, repetitions=3, warmups=0):
         self.validate(options)
@@ -237,6 +308,12 @@ class Adapter:
         if self.id == "perf-record":
             return [exe, "record", "-e", "cpu-clock", "-F", str(options.get("frequency", 99)),
                     "--call-graph", "dwarf", "-o", str(directory / "perf.data"), "--"] + command
+        if self.id=='cachegrind':
+            return [exe,'--tool=cachegrind','--cache-sim=yes','--branch-sim=yes',
+                    '--cachegrind-out-file='+str(directory/'cachegrind.out')]+[
+                    '--'+key+'='+','.join(map(str,value)) for key,value in sorted(options.items())]+command
+        if self.id=='dhat':return [exe,'--tool=dhat','--dhat-out-file='+str(directory/'dhat.json')]+command
+        if self.id=='callgrind':return [exe,'--tool=callgrind','--callgrind-out-file='+str(directory/'callgrind.out')]+command
         return [exe, "--tool=massif", "--massif-out-file=" + str(directory / "massif.out")] + command
 
     def parse(self, directory, options, record):
@@ -244,7 +321,7 @@ class Adapter:
         if self.id == "google-benchmark":
             if record["returncode"]:
                 raise LabError("target_failed", "Integrated benchmark exited nonzero")
-            result = parse_google_benchmark(directory / "benchmark.json")
+            result = parse_google_benchmark(directory / "benchmark.json", options.get("counters"))
         elif self.id == "hyperfine":
             if record["returncode"]:
                 diagnostic = (directory / "stderr.txt").read_text()
@@ -253,6 +330,9 @@ class Adapter:
             result = parse_hyperfine(directory / "hyperfine.json")
         elif self.id == "perf-stat":
             result = parse_stat(directory / "perf.csv", options.get("events", ["duration_time"]))
+        elif self.id=='cachegrind':result=parse_cachegrind(directory/'cachegrind.out')
+        elif self.id=='dhat':result=parse_dhat(directory/'dhat.json',options.get('operation_count'))
+        elif self.id=='callgrind':result=parse_callgrind(directory/'callgrind.out')
         elif self.id == "massif":
             result = parse_massif(directory / "massif.out")
         else:
@@ -358,7 +438,7 @@ REGISTRY = {
                 ("process startup included", "not a microbenchmark library", "output is piped, not terminal output"),
                 ("Hyperfine JSON",)),
         Adapter("google-benchmark", "", "Already integrated Google Benchmark target; per-iteration time",
-                ("time.iteration.wall", "time.iteration.cpu"), "low", "in-process-benchmark",
+                ("time.iteration.wall", "time.iteration.cpu") + BENCHMARK_WORK_METRICS, "low", "in-process-benchmark",
                 "https://github.com/google/benchmark", "Apache-2.0",
                 ("target links Google Benchmark and registers cases", "filter selects one case", "independent correctness oracle"),
                 ("cannot profile arbitrary executables", "benchmark code owns setup and optimizer barriers"),
@@ -375,6 +455,19 @@ REGISTRY = {
                 ("software event access", "DWARF unwinding support"),
                 ("on-CPU only; does not establish lock waiting", "sampling perturbs execution", "symbol quality depends on target artifacts"),
                 ("perf.data", "perf report delimited text")),
+        Adapter('callgrind','valgrind','Instrumented dynamic call edges and guest instruction counts',
+                ('control.call_count','callgrind.instructions'),'high','instrumentation',
+                'https://valgrind.org/docs/manual/cl-manual.html','GPL-2.0-or-later',
+                ('Valgrind-compatible target',),('machine call edges, not inlined source calls','not native runtime or PMU'),('Callgrind format v1',)),
+        Adapter('dhat','valgrind','Tracked heap blocks, cumulative bytes and simultaneous live peak',
+                tuple(DHAT_FIELDS)+('memory.allocations_per_operation','memory.allocated_bytes_per_operation'),
+                'high','instrumentation','https://valgrind.org/docs/manual/dh-manual.html','GPL-2.0-or-later',
+                ('Valgrind-compatible target','operation_count required for per-operation metrics'),
+                ('instrumented tracked heap, not RSS or allocator fragmentation','includes runtime allocations'),('DHAT JSON v2 heap',)),
+        Adapter('cachegrind','valgrind','Explicit cache and branch model, not hardware measurements',
+                tuple('cachegrind.'+v for v in CACHE_EVENTS.values())+tuple('cachegrind.'+v for v in CACHE_RATIOS),
+                'high','instrumentation','https://valgrind.org/docs/manual/cg-manual.html','GPL-2.0-or-later',
+                ('Valgrind-compatible target',),('Modeled cache/branch behavior','no TLB, real bandwidth or CPU runtime claims'),('Cachegrind events/summary',)),
         Adapter("massif", "valgrind", "Heap snapshot profiling with allocation stacks",
                 ("memory.heap_peak_observed",), "high", "instrumentation",
                 "https://valgrind.org/docs/manual/ms-manual.html", "GPL-2.0-or-later",

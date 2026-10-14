@@ -123,8 +123,11 @@ def load_request(path):
 
 
 def metric(name, value, unit, method, scope, evidence, **extra):
-    if not isinstance(value, (int, float)) or not math.isfinite(value):
+    if type(value) not in (int, float) or not math.isfinite(value):
         raise LabError("parse_failed", "Nonfinite or nonnumeric metric: " + name)
+    state = extra.pop("evidence_state", "Measured")
+    require(state in ("Measured", "Estimated", "Modeled"), "Numeric metric requires a numeric evidence state")
     return dict(name=name, value=value, unit=unit, method=method, scope=scope,
                 value_type="integer" if type(value) is int else "number",
-                status="observed", evidence=evidence, **extra)
+                status="observed", evidence=evidence, evidence_version=1,
+                evidence_state=state, **extra)

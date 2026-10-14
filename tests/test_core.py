@@ -110,8 +110,25 @@ class ExecutionLifecycleTests(unittest.TestCase):
                 "p=subprocess.Popen([sys.executable,'-c',sys.argv[2]]); "
                 "pathlib.Path(sys.argv[1]).write_text(str(p.pid)); time.sleep(30)"
             )
-            record = execute([sys.executable, "-c", parent_code, str(pid_file), child_code],
-                             directory / "run", timeout=0.3)
+            # This test exercises descendant cleanup after startup, rather than
+            # assuming Python can import/spawn within the 0.3-second deadline.
+            real_wait = subprocess.Popen.wait
+            readiness_checked = False
+            def wait_after_descendant_ready(process, timeout=None):
+                nonlocal readiness_checked
+                if not readiness_checked:
+                    readiness_checked = True  # Cleanup must use real wait even if setup fails.
+                    deadline = time.monotonic() + 5
+                    while time.monotonic() < deadline:
+                        if pid_file.exists() and pid_file.read_text().strip().isdigit():
+                            break
+                        time.sleep(0.01)
+                    else:
+                        self.fail("test fixture did not create its descendant")
+                return real_wait(process, timeout=timeout)
+            with mock.patch.object(subprocess.Popen, "wait", wait_after_descendant_ready):
+                record = execute([sys.executable, "-c", parent_code, str(pid_file), child_code],
+                                 directory / "run", timeout=0.3)
             self.assertEqual(record["status"], "timeout")
             self.assertEqual((directory / "run/stdout.txt").read_bytes(), b"")
             self.assertTrue((directory / "run/stderr.txt").is_file())
@@ -129,7 +146,7 @@ class ExecutionLifecycleTests(unittest.TestCase):
                 stat_path = Path("/proc") / str(child_pid) / "stat"
                 try:
                     state = stat_path.read_text().split()[2]
-                except FileNotFoundError:
+                except (FileNotFoundError, ProcessLookupError):
                     break  # The dead orphan was reaped between kill(0) and this read.
                 if state == "Z":
                     break

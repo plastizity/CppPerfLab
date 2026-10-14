@@ -10,5 +10,9 @@ metrics/hotspots/quality 查询细节。先定位 evidence ID，再用 evidence 
 comparison 使用 kind comparison，study 使用 kind study。噪声不稳定或不可比
 时解释原因，不选择最快样本替代分类。growth 排名是有限范围经验拟合。
 
+多指标汇报读取 [分析总结说明](../../../docs/performance-summary.md)，查询
+section summary；跨记录使用 summarize。指令工作量、执行质量、资源与耗时
+独立判断，缺失 SIMD/数值数据不得推断。总结记录使用 kind summary。
+
 人类交接时导出 HTML；它与 section all 使用同一视图。报告正文不证明根因，
 也不自动批准源码修改。保存原始实验目录，让证据链接仍可访问。

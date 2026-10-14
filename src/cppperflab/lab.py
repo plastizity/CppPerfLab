@@ -51,8 +51,7 @@ def plan(request, store):
             reasons.append(probes["tools"][tool]["reason"])
         goal = request.get("goal")
         if goal:
-            configured_metrics = ([EVENTS[e][0] for e in request["measurement"]["options"].get("events", ["duration_time"]) if e in EVENTS]
-                                  if tool == "perf-stat" else list(adapter.metrics))
+            configured_metrics = adapter.configured_metrics(request['measurement']['options'])
             missing = set(goal["metrics"]) - set(configured_metrics)
             if missing:
                 reasons.append("missing_metrics: " + ", ".join(sorted(missing)))
@@ -72,18 +71,22 @@ def plan(request, store):
 
 
 def summarize(samples):
+    from .metrics import evidence_state, NUMERIC_STATES
     groups = {}
     for sample in samples:
         for item in sample["metrics"]:
-            key = (item["name"], item["unit"], item["method"], item["scope"])
+            state = evidence_state(item)
+            if state not in NUMERIC_STATES:
+                continue
+            key = (item["name"], item["unit"], item["method"], item["scope"], state)
             groups.setdefault(key, []).append(item["value"])
     summaries = []
-    for (name, unit, method, scope), values in groups.items():
+    for (name, unit, method, scope, state), values in groups.items():
         mean = statistics.mean(values)
         sd = statistics.stdev(values) if len(values) > 1 else None
         median = statistics.median(values)
         summaries.append({"name": name, "unit": unit, "method": method, "scope": scope,
-                          "n": len(values), "median": median, "mean": mean,
+                          "evidence_state": state, "n": len(values), "median": median, "mean": mean,
                           "min": min(values), "max": max(values), "stdev": sd,
                           "cv": sd / mean if sd is not None and mean else None,
                           "mad": statistics.median(abs(v - median) for v in values)})
@@ -100,8 +103,16 @@ def run(request, store):
     write_json(directory / "result.json", result)
     try:
         result["plan"] = plan(request, store)
+        write_json(directory / "plan.json", result["plan"])
         selected = result["plan"]["selected"]
         if selected is None:
+            from .metrics import observation
+            configured = request['measurement']['tool']
+            names = request.get('goal', {}).get('metrics', [])
+            if not names and configured in REGISTRY:
+                names = REGISTRY[configured].configured_metrics(request['measurement']['options'])
+            result['unavailable_observations'] = [observation(name,'Unsupported',reason='No feasible tool; see plan diagnostics',
+                                                              evidence='plan.json') for name in names]
             raise LabError("unavailable", "No feasible tool", result["plan"])
         adapter = REGISTRY[selected]
         result["tool"] = {**adapter.describe(), **result["plan"]["probes"]["tools"][selected]}
@@ -163,6 +174,9 @@ def run(request, store):
                     item["tool"] = selected
                     item["tool_version"] = result["tool"]["version"]
                 result["samples"].append({"index": len(result["samples"]), "metrics": metrics})
+            for section in ('call_edges','allocation_sites','unavailable_observations'):
+                result.setdefault(section,[]).extend({**row, 'sample':index,
+                    'evidence':str(folder.relative_to(directory)/row['evidence'])} for row in parsed.get(section,[]))
             result["hotspots"].extend({**h, "sample": index,
                                        "evidence": str(folder.relative_to(directory) / h["evidence"])} for h in parsed["hotspots"])
             if selected == "massif":
@@ -179,6 +193,8 @@ def run(request, store):
             for path, original in items.items():
                 if sha256(path) != original:
                     raise LabError("invalid_request", category + " changed during measurement", {"path": path})
+        from .metrics import derive_sample
+        result["derived_observations"] = [m for sample in result["samples"] for m in derive_sample(sample)]
         result["summary"] = summarize(result["samples"])
         result["status"] = "completed"
     except KeyboardInterrupt:
@@ -187,6 +203,9 @@ def run(request, store):
     except LabError as error:
         result["status"] = error.category if error.category in ("cancelled", "timeout") else "failed"
         result["error"] = error.as_dict()
+        if error.details.get('unavailable_observations'):
+            result['unavailable_observations'] = [{**m, 'evidence':str(folder.relative_to(directory)/m['evidence'])}
+                                                for m in error.details['unavailable_observations']]
     except OSError as error:
         result["status"] = "failed"
         result["error"] = LabError("storage_failed", str(error)).as_dict()

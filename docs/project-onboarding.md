@@ -147,7 +147,7 @@ ID 使用真实返回值。baseline 命名是保存引用，不会替使用者�
 工具能力及选项以 `tools list`、`schema`、`plan` 为准，避免维护另一份工具清单。
 Google Benchmark 需要在目标内注册 case，当前 filter 必须恰好选中一个 case；
 使用 `time.iteration.wall` 或 `time.iteration.cpu` 比较。
-参见 [已验证的微基准流程](google-benchmark-acceptance.md)。
+构建步骤见 [本地依赖](downloads.md)，查询和展示见 [统一分析视图](analysis-views.md)。
 多规模与多个预构建算法候选使用 `study`，见
 [算法实验指引](../skills/cpp-performance/references/algorithms.md)。经验拟合不是 Big-O 证明。
 

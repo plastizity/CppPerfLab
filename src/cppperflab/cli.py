@@ -10,6 +10,7 @@ from importlib.resources import files
 
 from . import __version__
 from .adapters import REGISTRY
+from .metrics import catalog
 from .comparison import compare
 from .environment import discover
 from .errors import LabError, EXIT_CODES
@@ -17,7 +18,7 @@ from .lab import plan, run, probe_tools
 from .protocol import load_request
 from .storage import Store, write_json
 from .studies import study
-from .views import SECTIONS, build_view, query_view, read_evidence
+from .views import SECTIONS, build_view, query_view, read_evidence, create_summary
 from .html_report import export_html
 from .tool_config import tool_configuration, configuration_status
 
@@ -31,7 +32,7 @@ def parser():
         q.add_argument("--json", action="store_true", help="versioned JSON envelope")
         q.add_argument("--tool-config", type=Path, default=os.environ.get("CPPPERFLAB_TOOL_CONFIG"),
                        help="version-1 tool paths JSON (or CPPPERFLAB_TOOL_CONFIG)")
-    for name in ("doctor", "plan", "run", "study", "analyze", "report", "compare", "evidence", "history", "baseline", "workloads", "tools", "schema"):
+    for name in ("doctor", "plan", "run", "study", "analyze", "report", "compare", "summarize", "evidence", "history", "baseline", "workloads", "tools", "metrics", "schema"):
         q = sub.add_parser(name)
         common(q)
         if name in ("plan", "run", "study"):
@@ -39,7 +40,12 @@ def parser():
         if name in ("analyze", "report", "evidence"):
             q.add_argument("run_id")
         if name in ("analyze", "report"):
-            q.add_argument("--kind", choices=("run", "study", "comparison"), default="run")
+            q.add_argument("--kind", choices=("run", "study", "comparison", "summary"), default="run")
+        if name == 'summarize':
+            q.add_argument('--run', action='append', default=[], help='include a saved run (repeatable)')
+            q.add_argument('--comparison', action='append', default=[], help='include a saved comparison (repeatable)')
+            q.add_argument('--format', choices=('json', 'html'), default='json')
+            q.add_argument('--output', type=Path, help='required HTML export destination')
         if name == "analyze":
             q.add_argument("--section", choices=SECTIONS + ("all",), default="overview")
             q.add_argument("--metric", help="exact metric ID filter")
@@ -54,12 +60,16 @@ def parser():
             q.add_argument("candidate_id")
             q.add_argument("--metric", default="time.wall")
             q.add_argument("--allow-command-change", action="store_true")
+            q.add_argument("--policy", type=Path, help="version-1 acceptance policy JSON")
             q.add_argument("--format", choices=("json", "html"), default="json")
             q.add_argument("--output", type=Path, help="required HTML export destination")
         if name == "evidence":
             q.add_argument("--path", required=True, help="exact relative path from evidence inventory")
             q.add_argument("--offset", type=int, default=0, help="zero-based line offset")
             q.add_argument("--limit", type=int, default=80, help="line count, 1..500")
+        if name == "metrics":
+            q.add_argument("--domain")
+            q.add_argument("--metric")
         if name == "tools":
             q.add_argument("operation", choices=("list", "probe"))
             q.add_argument("--tool", choices=tuple(REGISTRY))
@@ -71,17 +81,19 @@ def parser():
             q.add_argument("name")
             q.add_argument("run_id")
         if name == "schema":
-            q.add_argument("kind", choices=("request", "result", "envelope", "study", "analysis", "query", "tools"))
+            q.add_argument("kind", choices=("request", "result", "envelope", "study", "analysis", "query", "tools", "summary", "metrics", "evidence", "policy"))
     return p
 
 
 def dispatch(args):
     store = Store(args.store)
-    if args.command in ("report", "compare"):
+    if args.command in ("report", "compare", "summarize"):
         if args.format == "html" and args.output is None:
             raise LabError("invalid_request", "HTML export requires --output")
         if args.format != "html" and args.output is not None:
             raise LabError("invalid_request", "--output is supported for HTML export only")
+    if args.command == "metrics":
+        return catalog(REGISTRY, args.domain, args.metric)
     if args.command == "doctor":
         return {"environment": discover(), "capabilities": probe_tools(store),
                 "tool_configuration": configuration_status(),
@@ -114,17 +126,30 @@ def dispatch(args):
         if args.format == "html":
             return export_html(build_view(store, args.run_id, args.kind), store, args.output)
         return store.read(args.run_id, args.kind)
+    if args.command == 'summarize':
+        view = create_summary(store, args.run, args.comparison)
+        if args.format == 'html':
+            return export_html(view, store, args.output)
+        return view
     if args.command == "compare":
         baseline, candidate = store.read(args.baseline_id), store.read(args.candidate_id)
         try:
-            result = compare(baseline, candidate, args.metric, args.allow_command_change)
+            policy = None
+            if args.policy:
+                try:
+                    policy = json.loads(args.policy.read_text())
+                except (OSError, ValueError) as exc:
+                    raise LabError("invalid_request", "Cannot read acceptance policy", {"reason":str(exc)}) from exc
+            result = compare(baseline, candidate, args.metric, args.allow_command_change, policy=policy)
         except LabError as error:
             if error.category != "incomparable":
                 raise
             # Archive the rejected comparison, preserving failure/exit semantics.
             result = {"schema_version": 1, "baseline_id": args.baseline_id,
                       "candidate_id": args.candidate_id, "metric": args.metric,
-                      "comparable": False, "status": "incomparable", "error": error.as_dict()}
+                      "comparable": False, "status": "incomparable", "error": error.as_dict(),
+                      "acceptance_policy":policy,
+                      "acceptance":error.details.get("acceptance", {"status":"INCONCLUSIVE", "reason":"incomparable conditions"})}
         identifier, directory = store.create("comparisons")
         result["comparison_id"] = identifier
         write_json(directory / "comparison.json", result)
