@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cppperflab:query:1",
+  "title": "CppPerfLab paginated analysis query v1",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "view_kind": {
+      "enum": [
+        "run",
+        "study",
+        "comparison"
+      ]
+    },
+    "record_id": {
+      "type": "string",
+      "pattern": "^\\d{8}T\\d{6}-[0-9a-f]{12}$"
+    },
+    "status": {
+      "type": "string"
+    },
+    "error": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "optimization_accepted": {
+      "const": false
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "section": {
+      "enum": [
+        "overview",
+        "conditions",
+        "metrics",
+        "hotspots",
+        "quality",
+        "evidence",
+        "facts",
+        "hypotheses",
+        "growth",
+        "comparisons"
+      ]
+    },
+    "data": {
+      "type": [
+        "object",
+        "array"
+      ]
+    },
+    "pagination": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "available_sections": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "overview",
+          "conditions",
+          "metrics",
+          "hotspots",
+          "quality",
+          "evidence",
+          "facts",
+          "hypotheses",
+          "growth",
+          "comparisons"
+        ]
+      }
+    },
+    "quality_summary": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "code",
+          "severity"
+        ]
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "view_kind",
+    "record_id",
+    "status",
+    "error",
+    "optimization_accepted",
+    "limitations",
+    "section",
+    "data",
+    "pagination",
+    "available_sections",
+    "quality_summary"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.21)
+project(CppPerfLabExamples LANGUAGES CXX)
+option(PERFLAB_SANITIZERS "Sanitize standalone validation targets" OFF)
+option(PERFLAB_REPORTS "Compiler optimization diagnostics" OFF)
+enable_testing()
+add_subdirectory(examples/cpp)

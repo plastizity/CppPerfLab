@@ -1,0 +1,200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cppperflab:analysis:1",
+  "title": "CppPerfLab shared analysis view v1",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "view_kind": {
+      "enum": [
+        "run",
+        "study",
+        "comparison"
+      ]
+    },
+    "record_id": {
+      "type": "string",
+      "pattern": "^\\d{8}T\\d{6}-[0-9a-f]{12}$"
+    },
+    "status": {
+      "type": "string"
+    },
+    "error": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "optimization_accepted": {
+      "const": false
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "overview": {
+      "type": "object"
+    },
+    "conditions": {
+      "type": "object"
+    },
+    "metrics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "summary",
+          "samples"
+        ],
+        "properties": {
+          "summary": {
+            "type": "object",
+            "required": [
+              "name",
+              "unit",
+              "method",
+              "scope",
+              "n",
+              "median",
+              "cv"
+            ]
+          },
+          "samples": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "index",
+                "value",
+                "evidence_id"
+              ],
+              "properties": {
+                "index": {
+                  "type": "integer"
+                },
+                "value": {
+                  "type": "number"
+                },
+                "evidence_id": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "hotspots": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "quality": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "info",
+              "review",
+              "error"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "severity",
+          "message"
+        ]
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "run_id",
+          "path",
+          "bytes",
+          "sha256"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "facts": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "hypotheses": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "growth": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "comparisons": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "view_kind",
+    "record_id",
+    "status",
+    "error",
+    "optimization_accepted",
+    "limitations",
+    "overview",
+    "conditions",
+    "metrics",
+    "hotspots",
+    "quality",
+    "evidence",
+    "facts",
+    "hypotheses",
+    "growth",
+    "comparisons"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,53 @@
+# 当前实现与验收范围
+
+平台使用独立合成 C++ 示例进行公开验收，不收录使用方身份、业务数据或证据。
+
+## 已完成并验证
+
+- Python 3.11 标准库核心、项目本地 zipapp 安装、版本化 JSON CLI。
+- Hyperfine、perf-stat、perf-record、Massif 的实际采集与解析。
+- Google Benchmark v1.9.4 集成目标的重复 wall/CPU 计时，见
+  [专项验收](google-benchmark-acceptance.md)。
+- 实验身份、原始证据归档、正确性前置检查、超时与进程清理。
+- 可比性检查、全部样本保留、CV 与描述性 bootstrap 区间；失败保持错误退出码。
+- 预构建候选的多规模实验、经验模型拟合、按规模比较，复用同一实验存储。
+- Agent 分段查询、按符号/指标筛选、分页证据读取及哈希校验。
+- 单次实验、A/B 比较、规模增长三类离线 HTML，共用统一分析视图。
+- 工具路径 JSON 配置、优先级和真实 probe；错误显式路径不触发替代版本。
+- 主 Skill 通过 AGENTS.md 发现，包含接入及结果查询指引。
+
+本轮 Python 自动化测试 **39 项通过**，覆盖原有协议/Adapter 行为、新增查询、
+证据完整性、HTML 与 JSON 数据一致性、文本转义、不可比报告及工具路径配置。
+Node 执行了表格筛选、坐标切换和 JSON 下载的交互逻辑测试。
+独立 C++ 示例已有 20 项 CTest 正确性检查通过。
+
+真实示例结果生成了三类报告，并验证原始证据链接和 Agent 查询。HTML 保留
+原比较的 inconclusive 分类，没有重新计算或放宽性能判断。
+HTML 结构与交互逻辑已验证；当前环境没有浏览器，未进行浏览器截图验收。
+
+## 复现
+
+```bash
+bash scripts/install.sh
+source scripts/env.sh
+PYTHONPATH=src python3.11 -m unittest discover -s tests -v
+cmake --preset profile
+cmake --build --preset profile -j 2
+ctest --test-dir build/profile --output-on-failure
+python3.11 scripts/make_examples.py
+perflab doctor --tool-config tools.example.json --json
+```
+
+修改示例工具配置，使其对应已安装工具。实际实验命令见 README；取得返回 ID 后，
+按 [统一分析视图](analysis-views.md) 导出报告。工具不可用时保留诊断，不伪造结果。
+运行数据、报告、本机配置和第三方二进制均不属于公开源码。
+
+## 限制与后续
+
+- 经验增长拟合不是渐近复杂度证明；微基准不是端到端性能。
+- 工作目录与资源限制不是不可信代码安全沙箱。
+- 当前只提供原始栈链接与热点行，尚无结构化调用树、火焰图或线程时间线。
+- 自定义阶段指标、测量后验证、自动交错 A/B 调度尚未实现。
+- 自动调优/演化框架、MCP 和独立 Web 服务尚未实现。
+- 自动工具下载/安装不在工具路径配置的范围内。
+- 本地 Skill 路由不等于全局技能目录注册；公开版本不依赖特定 Agent 安装路径。

@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {"name": "release", "generator": "Ninja", "binaryDir": "${sourceDir}/build/release", "cacheVariables": {"CMAKE_BUILD_TYPE": "Release", "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"}},
+    {"name": "profile", "inherits": "release", "binaryDir": "${sourceDir}/build/profile", "cacheVariables": {"CMAKE_BUILD_TYPE": "RelWithDebInfo", "PERFLAB_REPORTS": "ON"}},
+    {"name": "check", "inherits": "release", "binaryDir": "${sourceDir}/build/check", "cacheVariables": {"CMAKE_BUILD_TYPE": "Debug", "PERFLAB_SANITIZERS": "ON", "PERFLAB_SANITIZER_LIB_DIR": "${sourceDir}/vendor/rocky-tools/usr/lib64"}}
+  ],
+  "buildPresets": [{"name": "release", "configurePreset": "release"}, {"name": "profile", "configurePreset": "profile"}, {"name": "check", "configurePreset": "check"}],
+  "testPresets": [{"name": "check", "configurePreset": "check", "output": {"outputOnFailure": true}}]
+}

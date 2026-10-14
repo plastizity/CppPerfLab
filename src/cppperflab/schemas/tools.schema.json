@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cppperflab:tools:1",
+  "title": "CppPerfLab tool location configuration v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "tools"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "tools": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hyperfine": {
+          "type": "object",
+          "required": [
+            "executable"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "executable": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "perf-stat": {
+          "type": "object",
+          "required": [
+            "executable"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "executable": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "perf-record": {
+          "type": "object",
+          "required": [
+            "executable"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "executable": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "massif": {
+          "type": "object",
+          "required": [
+            "executable"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "executable": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "google-benchmark": {
+          "type": "object",
+          "required": [
+            "build_prefix"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "build_prefix": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    }
+  }
+}

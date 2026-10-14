@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cppperflab:envelope:1",
+  "title": "CppPerfLab envelope v1",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "result": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "error": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "category": {
+              "type": "string",
+              "minLength": 1
+            },
+            "message": {
+              "type": "string"
+            },
+            "details": {
+              "type": "object"
+            },
+            "exit_code": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "category",
+            "message",
+            "details",
+            "exit_code"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "ok",
+    "result",
+    "error"
+  ],
+  "additionalProperties": false
+}

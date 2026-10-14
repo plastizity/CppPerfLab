@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "tools": {
+    "hyperfine": {"executable": "vendor/hyperfine-1.19.0/hyperfine"},
+    "perf-stat": {"executable": "/usr/bin/perf"},
+    "perf-record": {"executable": "vendor/rocky-tools/usr/bin/perf"},
+    "massif": {"executable": "/usr/bin/valgrind"},
+    "google-benchmark": {"build_prefix": "vendor/google-benchmark-install"}
+  }
+}

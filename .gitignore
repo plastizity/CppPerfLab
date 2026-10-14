@@ -1,0 +1,15 @@
+.venv/
+.local/
+.perflab/
+build/
+__pycache__/
+*.egg-info/
+vendor/
+results/
+workloads/*.json
+tools.local.json
+.git-local/
+.aws/
+.codex/
+.agents/
+CMakeUserPresets.json

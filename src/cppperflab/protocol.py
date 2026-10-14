@@ -1,0 +1,130 @@
+"""Version-1 request boundary. No implicit recovery or unknown-field acceptance."""
+import hashlib
+import json
+import math
+import os
+from pathlib import Path
+import shutil
+
+from .errors import LabError
+
+
+def sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def require(condition, message):
+    if not condition:
+        raise LabError("invalid_request", message)
+
+
+def fields(value, allowed, required, name):
+    require(isinstance(value, dict), name + " must be an object")
+    require(not set(value) - set(allowed), name + ": unknown fields " + str(set(value) - set(allowed)))
+    require(set(required) <= set(value), name + ": missing fields " + str(set(required) - set(value)))
+
+
+def argv(value, name):
+    require(isinstance(value, list) and bool(value) and all(
+        isinstance(x, str) and "\x00" not in x for x in value), name + " must be a nonempty argv array")
+    require(bool(value[0]), name + " executable is empty")
+
+
+def positive(value, name, zero=False, integer=False):
+    require(type(value) in ((int,) if integer else (int, float)) and math.isfinite(value)
+            and (value >= 0 if zero else value > 0), name + " is invalid")
+
+
+def executable(value, base):
+    if "/" in value:
+        path = (base / value).resolve()
+    else:
+        found = shutil.which(value, path=os.defpath)
+        require(found is not None, "executable not found: " + value)
+        path = Path(found)
+    require(path.is_file() and os.access(path, os.X_OK), "executable not runnable: " + str(path))
+    return str(path)
+
+
+def load_request(path):
+    path = Path(path).resolve()
+    try:
+        request = json.loads(path.read_text(), parse_constant=lambda s: (_ for _ in ()).throw(ValueError(s)))
+    except (OSError, ValueError) as error:
+        raise LabError("invalid_request", "Cannot read JSON request", {"reason": str(error)}) from error
+    fields(request, ("schema_version", "name", "workload", "target", "measurement", "correctness", "goal"),
+           ("schema_version", "name", "workload", "target", "measurement", "correctness"), "request")
+    if type(request["schema_version"]) is not int or request["schema_version"] != 1:
+        raise LabError("unsupported_schema", "Only request schema_version=1 is supported")
+    require(isinstance(request["name"], str) and bool(request["name"]), "name must be nonempty")
+    workload = request["workload"]
+    fields(workload, ("id", "parameters", "inputs"), ("id", "parameters", "inputs"), "workload")
+    require(isinstance(workload["id"], str) and bool(workload["id"]), "workload.id must be nonempty")
+    require(isinstance(workload["parameters"], dict), "workload.parameters must be an object")
+    require(isinstance(workload["inputs"], list), "workload.inputs must be an array of paths")
+    for i, item in enumerate(workload["inputs"]):
+        require(isinstance(item, str), "input path must be a string")
+        p = (path.parent / item).resolve()
+        require(p.is_file(), "input missing: " + str(p))
+        workload["inputs"][i] = str(p)
+    target = request["target"]
+    fields(target, ("argv", "cwd", "environment", "build"), ("argv", "environment", "build"), "target")
+    argv(target["argv"], "target.argv")
+    target["argv"][0] = executable(target["argv"][0], path.parent)
+    require(isinstance(target["environment"], dict) and all(
+        isinstance(k, str) and k and "=" not in k and "\x00" not in k and
+        isinstance(v, str) and "\x00" not in v for k, v in target["environment"].items()), "invalid environment")
+    if "cwd" in target:
+        require(isinstance(target["cwd"], str), "cwd must be a path")
+        target["cwd"] = str((path.parent / target["cwd"]).resolve())
+        require(Path(target["cwd"]).is_dir(), "cwd missing")
+    fields(target["build"], ("revision", "compiler", "flags", "mode", "artifacts"),
+           ("revision", "compiler", "flags", "mode", "artifacts"), "target.build")
+    build = target["build"]
+    require(all(isinstance(build[k], str) for k in ("revision", "compiler", "mode")), "build metadata must be strings; use unknown when unknown")
+    for key in ("flags", "artifacts"):
+        require(isinstance(build[key], list) and all(isinstance(x, str) for x in build[key]), "invalid build." + key)
+    build["artifacts"] = [str((path.parent / p).resolve()) for p in build["artifacts"]]
+    require(all(Path(p).is_file() for p in build["artifacts"]), "build artifact missing")
+    measurement = request["measurement"]
+    fields(measurement, ("tool", "repetitions", "warmups", "timeout_seconds", "cpu_affinity", "options", "limits"),
+           ("tool", "repetitions", "warmups", "timeout_seconds", "options"), "measurement")
+    require(isinstance(measurement["tool"], str), "tool must be a string")
+    positive(measurement["repetitions"], "repetitions", integer=True)
+    positive(measurement["warmups"], "warmups", zero=True, integer=True)
+    positive(measurement["timeout_seconds"], "timeout_seconds")
+    require(isinstance(measurement["options"], dict), "options must be an object")
+    if "cpu_affinity" in measurement:
+        cpus = measurement["cpu_affinity"]
+        require(isinstance(cpus, list) and bool(cpus) and all(type(n) is int and n >= 0 for n in cpus), "cpu_affinity must be a nonempty CPU list")
+        require(hasattr(os, "sched_getaffinity") and set(cpus) <= os.sched_getaffinity(0), "requested affinity unavailable")
+    limits = measurement.get("limits", {})
+    fields(limits, ("address_space_bytes", "cpu_seconds"), (), "limits")
+    for key, value in limits.items():
+        positive(value, key, integer=True)
+    correctness = request["correctness"]
+    fields(correctness, ("argv", "description"), ("argv", "description"), "correctness")
+    argv(correctness["argv"], "correctness.argv")
+    correctness["argv"][0] = executable(correctness["argv"][0], path.parent)
+    require(isinstance(correctness["description"], str) and bool(correctness["description"]), "correctness.description required")
+    if "goal" in request:
+        goal = request["goal"]
+        fields(goal, ("metrics", "max_overhead", "allow_instrumentation"),
+               ("metrics", "max_overhead", "allow_instrumentation"), "goal")
+        require(isinstance(goal["metrics"], list) and bool(goal["metrics"]) and all(isinstance(x, str) for x in goal["metrics"]), "goal.metrics required")
+        require(goal["max_overhead"] in ("low", "moderate", "high"), "invalid overhead budget")
+        require(type(goal["allow_instrumentation"]) is bool, "allow_instrumentation must be boolean")
+    require(measurement["tool"] != "auto" or "goal" in request, "auto selection requires a capability goal")
+    return request
+
+
+def metric(name, value, unit, method, scope, evidence, **extra):
+    if not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise LabError("parse_failed", "Nonfinite or nonnumeric metric: " + name)
+    return dict(name=name, value=value, unit=unit, method=method, scope=scope,
+                value_type="integer" if type(value) is int else "number",
+                status="observed", evidence=evidence, **extra)
