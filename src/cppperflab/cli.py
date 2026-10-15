@@ -81,7 +81,7 @@ def parser():
             q.add_argument("name")
             q.add_argument("run_id")
         if name == "schema":
-            q.add_argument("kind", choices=("request", "result", "envelope", "study", "analysis", "query", "tools", "summary", "metrics", "evidence", "policy"))
+            q.add_argument("kind", choices=("request", "result", "envelope", "study", "analysis", "query", "tools", "summary", "metrics", "evidence", "policy", "solver", "solver-validation"))
     return p
 
 
@@ -150,6 +150,8 @@ def dispatch(args):
                       "comparable": False, "status": "incomparable", "error": error.as_dict(),
                       "acceptance_policy":policy,
                       "acceptance":error.details.get("acceptance", {"status":"INCONCLUSIVE", "reason":"incomparable conditions"})}
+        from .comparison import normalized_cost
+        result["normalized_cost"] = normalized_cost(result)
         identifier, directory = store.create("comparisons")
         result["comparison_id"] = identifier
         write_json(directory / "comparison.json", result)

@@ -32,7 +32,7 @@ def definition(name, domains, category, unit, formula, scope, direction='none', 
 DEFINITIONS = {
     'time.wall': definition('time.wall', ['D01','D02','D03','D04','D05','D07','D11','D12'], 'Outcome', 'seconds', 'end - start', 'whole target process including startup', 'lower'),
     'time.cpu': definition('time.cpu', ['D06','D07','D09'], 'Diagnostic', 'seconds', 'task CPU time', 'target process and inherited threads'),
-    'time.iteration.wall': definition('time.iteration.wall', ['D03'], 'Outcome', 'seconds', 'elapsed / iterations', 'registered benchmark timing region', 'lower'),
+    'time.iteration.wall': definition('time.iteration.wall', ['D03','D07','D12'], 'Outcome', 'seconds', 'elapsed / iterations', 'registered benchmark timing region', 'lower'),
     'time.iteration.cpu': definition('time.iteration.cpu', ['D03'], 'Diagnostic', 'seconds', 'CPU time / iterations', 'registered benchmark CPU timing region'),
     'memory.heap_peak_observed': definition('memory.heap_peak_observed', ['D04'], 'Outcome', 'bytes', 'max recorded mem_heap_B', 'Massif recorded heap snapshots; not RSS', 'lower'),
     'cpu.hotspots': definition('cpu.hotspots', ['D01','D06'], 'Diagnostic', '%', 'self sample period / total sample period * 100', 'on-CPU sampling; not exact duration'),
@@ -89,6 +89,32 @@ for name,category,unit,formula,scope,direction,operands in [
     DEFINITIONS[name]=definition(name,['D02','D03'] if name=='algorithm.operations' else ['D03'],category,unit,formula,scope,direction,operands)
 
 
+for name,unit,formula,category,direction in [
+    ('memory.copied_bytes','bytes','declared bytes copied per iteration','Diagnostic','none'),
+    ('pipeline.full_traversals','count','declared full traversals per iteration','Diagnostic','none'),
+    ('pipeline.rebuilds','count','declared structure rebuilds per iteration','Diagnostic','none'),
+    ('pipeline.reuses','count','declared successful reuses per iteration','Diagnostic','none'),
+    ('pipeline.stage_wall','seconds','inclusive stage wall seconds per iteration','Outcome','lower'),
+    ('pipeline.stage_fraction','ratio','stage wall seconds / enclosing iteration wall seconds','Diagnostic','none'),
+]:
+    DEFINITIONS[name]=definition(name,['D12'],category,unit,formula,'explicit target-defined iteration/stage; no implicit pipeline reconstruction',direction)
+for name,formula in [('parallel.speedup','median T(1) / median T(p)'),
+                     ('parallel.efficiency','speedup(p) / p')]:
+    DEFINITIONS[name]=definition(name,['D07'],'Efficiency','ratio',formula,'strong scaling; fixed workload; declared worker count','higher')
+
+
+for name,category,unit,formula,direction in [
+    ('solver.setup_time','Diagnostic','seconds','target setup end - start','none'),
+    ('solver.solve_time','Diagnostic','seconds','target solve end - start','none'),
+    ('solver.total_time','Outcome','seconds','target total setup/solve interval; external validator excluded','lower'),
+    ('solver.iterations','Diagnostic','count','completed solver iterations','none'),
+    ('numerical.residual','Diagnostic','problem units or ratio','independently recomputed declared L2 residual norm','none'),
+    ('numerical.absolute_error','Diagnostic','problem units','independently recomputed L2 solution error','none'),
+    ('numerical.relative_error','Diagnostic','ratio','L2 solution error / L2 reference solution norm','none'),
+]:
+    DEFINITIONS[name]=definition(name,['D14'],category,unit,formula,'one solve with explicit independent validator and numerical gates',direction)
+
+
 def catalog(registry, domain=None, metric_id=None):
     require(domain is None or domain in {d for v in DEFINITIONS.values() for d in v['domains']}, 'Unknown or unimplemented domain')
     require(metric_id is None or metric_id in DEFINITIONS, 'Unknown metric')
@@ -97,9 +123,11 @@ def catalog(registry, domain=None, metric_id=None):
         if (domain and domain not in spec['domains']) or (metric_id and name != metric_id):
             continue
         operands = spec['operands'] or [name]
-        providers = [key for key, adapter in registry.items() if set(operands) <= set(adapter.metrics)]
+        from .solver import METRIC_IDS
+        solver_metric=name in METRIC_IDS
+        providers = [key for key, adapter in registry.items() if (not adapter.batch if solver_metric else set(operands) <= set(adapter.metrics))]
         result.append({**spec, 'source_capability': operands,
-                       'providers': providers, 'collection_method': 'same-sample derivation' if spec['operands'] else ('study' if name in ('algorithm.growth_ratio','algorithm.doubling_ratio','algorithm.empirical_exponent') else 'adapter')})
+                       'providers': providers, 'collection_method': 'explicit post-sample solver validation' if solver_metric else 'same-sample derivation' if spec['operands'] else ('study' if name.startswith('parallel.') or name in ('algorithm.growth_ratio','algorithm.doubling_ratio','algorithm.empirical_exponent') else 'adapter')})
     return {'schema_version': 1, 'metrics': result,
             'note': 'Definitions and provider declarations are not availability claims; use tools probe and plan.'}
 

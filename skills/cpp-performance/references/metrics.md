@@ -97,3 +97,14 @@ sample/CV screen; it does not establish asymptotic complexity or model correctne
 Reproduce this increment with `python3.11 scripts/validate_domains_1_5.py` after an
 explicit build and `scripts/make_examples.py`. The driver stores policy before
 measurement, retains failed/inconclusive findings and does not install or rebuild.
+
+
+### Relative cost (smaller is better)
+
+Read `normalized_cost` in compare results, analysis comparison findings and HTML.
+For time it is candidate median / baseline median, baseline 1. Throughput uses
+baseline / candidate. Always report its interval and acceptance_status; INCONCLUSIVE
+is not a verified improvement. Null means no valid scoring evidence or no declared
+objective. Keep resource costs separate and inspect their gates before recommending
+acceptance; no overall multi-resource acceptance or composite score is implied.
+See `docs/core-metrics.md` for semantics and legacy-record behavior.

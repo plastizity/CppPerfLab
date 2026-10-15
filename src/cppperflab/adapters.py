@@ -61,12 +61,16 @@ BENCHMARK_WORK = {
     'useful_flops': ('kernel.useful_flops', 'FLOP'),
     'logical_bytes': ('kernel.logical_input_bytes', 'bytes'),
     'operations': ('algorithm.operations', 'count'),
+    'copied_bytes': ('memory.copied_bytes', 'bytes'),
+    'traversals': ('pipeline.full_traversals', 'count'),
+    'rebuilds': ('pipeline.rebuilds', 'count'),
+    'reuses': ('pipeline.reuses', 'count'),
 }
 BENCHMARK_WORK_METRICS = tuple(v[0] for v in BENCHMARK_WORK.values()) + (
-    'kernel.useful_flop_rate', 'kernel.logical_arithmetic_intensity', 'workload.throughput')
+    'kernel.useful_flop_rate', 'kernel.logical_arithmetic_intensity', 'workload.throughput', 'pipeline.stage_wall', 'pipeline.stage_fraction')
 
 
-def parse_google_benchmark(path, counters=None):
+def parse_google_benchmark(path, counters=None, stage=None):
     raw = json.loads(Path(path).read_text())
     samples, names = [], set()
     for row in raw["benchmarks"]:
@@ -110,6 +114,18 @@ def parse_google_benchmark(path, counters=None):
                                     'algorithm-logical-traffic-model',items[0]['scope'],path.name,evidence_state='Modeled',
                                     sources={'useful_flops':work['useful_flops'],'logical_bytes':work['logical_bytes']},
                                     limitations=['Logical input traffic model; not measured DRAM arithmetic intensity or Roofline.']))
+        if stage is not None:
+            seconds=row.get(stage['seconds_counter'])
+            if type(seconds) not in (int,float) or not math.isfinite(seconds) or seconds<0 or seconds>items[0]['value']:
+                raise LabError('parse_failed','Stage seconds must be finite, nonnegative and within iteration wall time')
+            scope=items[0]['scope']+'; stage='+stage['name']
+            items.append(metric('pipeline.stage_wall',seconds,'seconds','target-per-iteration-stage-clock',scope,path.name,
+                                source_counter=stage['seconds_counter'],counter_contract='inclusive wall seconds per iteration; same timed iteration; clock instrumentation included'))
+            if items[0]['value']<=0:
+                raise LabError('parse_failed','Stage fraction requires positive iteration wall time')
+            items.append(metric('pipeline.stage_fraction',seconds/items[0]['value'],'ratio','paired-benchmark-stage-ratio',scope,path.name,
+                                sources={'stage_seconds':seconds,'iteration_seconds':items[0]['value']},
+                                limitations=['Inclusive stage fraction; overlapping stages must not be summed.']))
         samples.append(items)
     if len(names) != 1 or not samples:
         raise LabError("parse_failed", "Filter must select exactly one Google Benchmark case")
@@ -246,6 +262,7 @@ class Adapter:
             result=['time.iteration.wall','time.iteration.cpu']
             keys=set(options.get('counters',{}))
             result += [BENCHMARK_WORK[k][0] for k in keys]
+            if 'stage' in options:result += ['pipeline.stage_wall','pipeline.stage_fraction']
             if 'useful_flops' in keys:result.append('kernel.useful_flop_rate')
             if 'operations' in keys:result.append('workload.throughput')
             if {'useful_flops','logical_bytes'} <= keys:result.append('kernel.logical_arithmetic_intensity')
@@ -253,7 +270,7 @@ class Adapter:
         return list(self.metrics)
 
     def validate(self, options):
-        allowed = {"google-benchmark": {"filter", "min_time_seconds", "warmup_seconds", "counters"}, "hyperfine": set(), "perf-stat": {"events"}, "perf-record": {"frequency"}, "massif": set(), "callgrind": set(), "dhat": {"operation_count"}, "cachegrind": {"I1","D1","LL"}}[self.id]
+        allowed = {"google-benchmark": {"filter", "min_time_seconds", "warmup_seconds", "counters", "stage"}, "hyperfine": set(), "perf-stat": {"events"}, "perf-record": {"frequency"}, "massif": set(), "callgrind": set(), "dhat": {"operation_count"}, "cachegrind": {"I1","D1","LL"}}[self.id]
         require(not set(options) - allowed, self.id + ": unsupported options " + str(set(options) - allowed))
         if self.id=='dhat' and 'operation_count' in options:
             from .protocol import positive
@@ -276,11 +293,18 @@ class Adapter:
             require(isinstance(options.get("filter"), str) and bool(options["filter"]), "Google Benchmark needs an explicit case filter")
             positive(options.get("min_time_seconds", .1), "min_time_seconds")
             positive(options.get("warmup_seconds", 0), "warmup_seconds", zero=True)
+            if 'stage' in options:
+                stage=options['stage']
+                require(isinstance(stage,dict) and set(stage)=={'name','seconds_counter'}, 'stage requires name and seconds_counter')
+                require(all(isinstance(v,str) and re.fullmatch(r'[A-Za-z_][A-Za-z_0-9]*',v) for v in stage.values()), 'Invalid stage name/counter')
+                require(stage['seconds_counter'] not in {'real_time','cpu_time','iterations','time_unit'}, 'Stage must use an explicit seconds counter')
             counters=options.get('counters',{})
             require(isinstance(counters,dict) and set(counters)<=set(BENCHMARK_WORK), 'Unknown benchmark work counter semantics')
             require(all(isinstance(v,str) and re.fullmatch(r'[A-Za-z_][A-Za-z_0-9]*',v) and
                         v not in {'real_time','cpu_time','iterations','time_unit'} for v in counters.values()),'Invalid benchmark counter field')
             require(len(set(counters.values()))==len(counters), 'One target field cannot have multiple work meanings')
+            if 'stage' in options:
+                require(options['stage']['seconds_counter'] not in counters.values(), 'Stage seconds cannot also represent a work count')
 
     def prepare(self, command, directory, options, repetitions=3, warmups=0):
         self.validate(options)
@@ -321,7 +345,7 @@ class Adapter:
         if self.id == "google-benchmark":
             if record["returncode"]:
                 raise LabError("target_failed", "Integrated benchmark exited nonzero")
-            result = parse_google_benchmark(directory / "benchmark.json", options.get("counters"))
+            result = parse_google_benchmark(directory / "benchmark.json", options.get("counters"), options.get("stage"))
         elif self.id == "hyperfine":
             if record["returncode"]:
                 diagnostic = (directory / "stderr.txt").read_text()

@@ -107,10 +107,16 @@ def load_request(path):
     for key, value in limits.items():
         positive(value, key, integer=True)
     correctness = request["correctness"]
-    fields(correctness, ("argv", "description"), ("argv", "description"), "correctness")
+    fields(correctness, ("argv", "description", "sample_validation"), ("argv", "description"), "correctness")
     argv(correctness["argv"], "correctness.argv")
     correctness["argv"][0] = executable(correctness["argv"][0], path.parent)
     require(isinstance(correctness["description"], str) and bool(correctness["description"]), "correctness.description required")
+    if 'sample_validation' in correctness:
+        from .solver import validate_contract
+        validation=correctness['sample_validation']
+        validate_contract(validation)
+        argv(validation['argv'],'sample_validation.argv')
+        validation['argv'][0]=executable(validation['argv'][0],path.parent)
     if "goal" in request:
         goal = request["goal"]
         fields(goal, ("metrics", "max_overhead", "allow_instrumentation"),

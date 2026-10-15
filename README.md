@@ -83,6 +83,11 @@ optimizer or mature automatic tuner. It does not compile or execute unreviewed
 generated source. Resource limits and separate working directories are **not a
 security sandbox**; filesystem/network isolation requires an external boundary.
 
+For named pipeline stages, work counters and fixed-work thread scaling, see
+[scientific workload experiments](docs/scientific-performance.md). For structured
+solver logs, convergence history and independent per-solve acceptance, see
+[solver validation](docs/solver-validation.md).
+
 ## Interfaces and evidence
 
 Agent queries and offline human reports use one shared analysis view:

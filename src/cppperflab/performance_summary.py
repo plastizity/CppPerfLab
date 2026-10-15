@@ -18,13 +18,13 @@ DIMENSIONS = {
         'memory.allocated_bytes_per_operation', 'kernel.logical_input_bytes']},
     'execution': {'title': '执行行为', 'metrics': [
         'cpu.cycles', 'cpu.cache_references', 'cpu.cache_misses', 'cpu.branches',
-        'cpu.branch_misses', 'cpu.tlb_misses', 'os.page_faults', 'os.context_switches', 'control.call_count']},
+        'cpu.branch_misses', 'pipeline.full_traversals', 'pipeline.rebuilds', 'pipeline.reuses', 'cpu.tlb_misses', 'os.page_faults', 'os.context_switches', 'control.call_count']},
     'instruction_quality': {'title': '指令执行质量', 'metrics': [
         'cpu.ipc', 'simd.vector_instructions', 'simd.scalar_instructions',
         'simd.lane_utilization', 'simd.operations_per_instruction',
         'compiler.vectorized_loops']},
     'timing': {'title': '耗时', 'metrics': [
-        'time.wall', 'time.cpu', 'time.iteration.wall', 'time.iteration.cpu']},
+        'time.wall', 'time.cpu', 'time.iteration.wall', 'time.iteration.cpu', 'pipeline.stage_wall', 'solver.setup_time', 'solver.solve_time', 'solver.total_time']},
     'correctness': {'title': '正确性与数值质量', 'metrics': [
         'numerical.absolute_error', 'numerical.relative_error', 'numerical.residual']},
 }
@@ -38,10 +38,12 @@ def dimension(metric_name):
 
 
 def comparison_finding(result):
+    from .comparison import normalized_cost
     key = dimension(result['metric'])
     finding = {'kind': 'statistical_inference', 'dimension': key, 'metric': result['metric'],
                'baseline_id': result['baseline_id'], 'candidate_id': result['candidate_id'],
-               'classification': result.get('classification'), 'comparable': result['comparable']}
+               'classification': result.get('classification'), 'comparable': result['comparable'],
+               'normalized_cost': normalized_cost(result), 'acceptance':result.get('acceptance')}
     if not result['comparable']:
         finding.update(outcome='incomparable', message='测量条件或指标语义不兼容，未形成变化结论。',
                        error=result['error'])

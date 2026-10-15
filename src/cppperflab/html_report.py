@@ -121,6 +121,8 @@ def comparisons_section(view):
     content = []
     for c in view["comparisons"]:
         content.append('<article><h3>' + esc(c["metric"]) + (': scale=' + esc(c["scale"]) if 'scale' in c else '') + '</h3>')
+        from .comparison import normalized_cost
+        content.append(details("归一化性能成本（基线 1，越小越好）与验收", normalized_cost(c)))
         if not c["comparable"]:
             content.append('<p class="alert">不可比：未计算加速比。</p>' + details('测量条件差异', c["error"]["details"]) + '</article>')
             continue
@@ -137,7 +139,13 @@ def comparisons_section(view):
 
 
 def growth_section(view):
-    content = ['<p class="alert">经验增长模型只描述测量范围，不是 Big-O 数学证明。模型排序使用已保存的拟合结果。</p>']
+    scaling=view['overview'].get('scaling',{})
+    content = ['<p class="alert">固定工作量强扩展：线程数不是问题规模；区间是描述性统计，不能证明瓶颈根因。</p>' if scaling else '<p class="alert">经验增长模型只描述测量范围，不是 Big-O 数学证明。模型排序使用已保存的拟合结果。</p>']
+    for variant,result in scaling.items():
+        content.append('<h3>'+esc(variant)+' · 强扩展</h3>')
+        content.append(table(['请求线程数','加速比','并行效率','加速比 95% 区间','测量筛查'],[
+            [esc(p['workers']),number(p['speedup']),number(p['efficiency']),esc(p['speedup_interval_95_percent']),esc(p['measurement_status'])] for p in result['points']]))
+        content.append(details('强扩展证据与限制',result))
     # Different metric meanings stay in different plots.
     grouped = {}
     for series in view["growth"]:
@@ -149,8 +157,8 @@ def growth_section(view):
         series = [{"label": variant, "connect": True, "points": [(p["x"], p["median"]) for p in sorted(points, key=lambda p: p["x"])]}
                   for variant, points in variants.items()]
         content.append('<div class="scale-switch"><label>坐标 <select><option value="linear">线性</option><option value="log">对数</option></select></label>' +
-                       '<div data-scale="linear">' + line_plot(series, '输入特征规模', unit) + '</div>' +
-                       '<div data-scale="log" hidden>' + line_plot(series, '输入特征规模', unit, log=True) + '</div></div>')
+                       '<div data-scale="linear">' + line_plot(series, '请求线程数' if scaling else '输入特征规模', unit) + '</div>' +
+                       '<div data-scale="log" hidden>' + line_plot(series, '请求线程数' if scaling else '输入特征规模', unit, log=True) + '</div></div>')
     for item in view["growth"]:
         content.append('<article><h3>' + esc(item["variant"]) + '</h3>')
         content.append(table(['规模', '中位数', '单位', '重复数', 'CV', 'Run ID'], [[esc(p["x"]), number(p["median"]), esc(p["unit"]), esc(p["n"]), number(p["cv"]), esc(p["run_id"])] for p in item["points"]]))
@@ -212,7 +220,7 @@ def render_html(view, store, output):
         sections.extend([('metrics', '指标与样本', metrics_section(view)), ('hotspots', '采样热点', hotspot_section(view)),
                          ('reasoning', '事实与待验证假设', details('观测事实', view['facts']) + details('待验证假设', view['hypotheses']))])
     if view['view_kind'] == 'study':
-        sections.append(('growth', '规模增长', growth_section(view)))
+        sections.append(('growth', '强扩展' if view['overview'].get('scaling') else '规模增长', growth_section(view)))
     if view['view_kind'] != 'run':
         sections.append(('comparison', '实验比较', comparisons_section(view)))
     sections.append(('evidence', '原始证据', '<p>链接指向本机实验归档；移动 HTML 后需保留其相对位置。哈希为归档记录值，点击链接不执行校验；Agent evidence 查询执行校验。</p>' + table(['Run ID', '文件', '字节数', '记录 SHA-256'], evidence, searchable=True)))

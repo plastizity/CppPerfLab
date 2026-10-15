@@ -49,8 +49,9 @@ For callable metric definitions, same-sample derivations and acceptance policies
 read [metric evidence and acceptance](references/metrics.md). It also covers D01–D05
 call edges, heap allocation sites, cache models and Kernel work counters. The catalog describes
 implemented public metrics, not full domain coverage. D13/D15/D16/D17 are deferred;
-D14 numerical constraints remain required when relevant, but per-sample solver
-validation is not implemented by the current preflight oracle.
+For D14 structured logs and independent per-solve hard gates, read
+[solver validation](references/solvers.md). Legacy preflight-only runs do not
+provide per-solve evidence.
 
 ## Measure, interpret, compare
 
@@ -64,6 +65,8 @@ perflab report RUN_ID --format json
 perflab compare BASELINE_ID CANDIDATE_ID --json
 ```
 
+For a smaller-is-better relative objective, read `normalized_cost` together with its
+interval and acceptance status; see the metric reference. A cost alone is not acceptance.
 Use returned IDs, not invented paths. Inspect `status`, `correctness`, `tool`,
 `identity`, `binary`, raw `samples`, `summary`, `hotspots` and `evidence`.
 Read the raw native report behind an important claim. A sampling percentage is
@@ -78,6 +81,10 @@ timing. Hyperfine includes target startup. Pin only explicitly chosen CPUs and r
 thread controls. Use the same workload/oracle and experiment controls for candidates.
 Do not compare instrumented timings with native timings. `inconclusive` is a real
 result; increase workload duration/repeats or reduce interference before concluding.
+
+For scientific pipeline stage counters or single-machine strong scaling, read
+[scientific experiments](references/scientific.md). These reuse Adapter/Study;
+solver-specific evidence and validation use the separate solver reference above.
 
 ## Algorithm-scale and variant path
 

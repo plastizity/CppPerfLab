@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "$id": "urn:cppperflab:solver-validation:1",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "problem_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "residual_norm": {
+      "enum": [
+        "l2_absolute",
+        "l2_relative"
+      ]
+    },
+    "residual": {
+      "type": "number",
+      "minimum": 0
+    },
+    "absolute_error": {
+      "type": "number",
+      "minimum": 0
+    },
+    "relative_error": {
+      "type": "number",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "schema_version",
+    "problem_id",
+    "residual_norm",
+    "residual",
+    "absolute_error",
+    "relative_error"
+  ]
+}

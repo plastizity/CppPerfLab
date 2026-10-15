@@ -49,9 +49,15 @@ def plan(request, store):
         reasons = []
         if not probes["tools"][tool]["available"]:
             reasons.append(probes["tools"][tool]["reason"])
+        sample_validation=request['correctness'].get('sample_validation')
+        if sample_validation and adapter.batch:
+            reasons.append('per_sample_validation_requires_one_target_execution_per_sample')
         goal = request.get("goal")
         if goal:
             configured_metrics = adapter.configured_metrics(request['measurement']['options'])
+            if sample_validation and not adapter.batch:
+                from .solver import METRIC_IDS
+                configured_metrics += list(METRIC_IDS)
             missing = set(goal["metrics"]) - set(configured_metrics)
             if missing:
                 reasons.append("missing_metrics: " + ", ".join(sorted(missing)))
@@ -148,6 +154,10 @@ def run(request, store):
         if not adapter.batch:
             for i in range(config["warmups"]):
                 launch(target["argv"], directory / ("warmup-%03d" % i))
+        sample_validation=request['correctness'].get('sample_validation')
+        if sample_validation:
+            result['correctness']['sample_validation_status']='pending'
+            result['solver_samples']=[]
         count = 1 if adapter.batch else config["repetitions"]
         for index in range(count):
             folder = directory / ("measurement-%03d" % index)
@@ -162,6 +172,27 @@ def run(request, store):
                 category = "tool_failed" if record["returncode"] else "parse_failed"
                 raise LabError(category, "Cannot normalize tool output", {"reason": str(error), "evidence": str(folder)}) from error
             write_json(folder / "normalized.json", parsed)
+            if sample_validation:
+                from .solver import normalize
+                validation_argv=[arg.replace('{sample_dir}',str(folder)) for arg in sample_validation['argv']]
+                try:
+                    launch(validation_argv,folder/'validation')
+                    solved=normalize(folder/sample_validation['report'],folder/'validation/stdout.txt',sample_validation,request['workload']['id'])
+                except LabError as error:
+                    result['correctness']['status']='failed'
+                    result['correctness']['sample_validation_status']='failed'
+                    result['solver_samples'].append({'sample':index,'status':'INCONCLUSIVE','evidence_state':'Invalid','error':error.as_dict(),
+                                                    'evidence':str(folder.relative_to(directory)/sample_validation['report'])})
+                    if error.category=='target_failed':
+                        raise LabError('correctness_failed','Per-solve validator rejected output',error.details) from error
+                    raise
+                parsed['metrics'].extend(solved.pop('metrics'))
+                solved['sample']=index
+                solved['evidence']=str(folder.relative_to(directory)/sample_validation['report'])
+                solved['validation_evidence']=str(folder.relative_to(directory)/'validation/stdout.txt')
+                result['solver_samples'].append(solved)
+                parsed.setdefault('limitations',[]).extend(solved['limitations'])
+                write_json(folder / 'normalized.json',parsed)
             if "library_version" in parsed:
                 result["tool"]["version"] = parsed["library_version"]
             if "sample_count" in parsed:
@@ -179,6 +210,10 @@ def run(request, store):
                     'evidence':str(folder.relative_to(directory)/row['evidence'])} for row in parsed.get(section,[]))
             result["hotspots"].extend({**h, "sample": index,
                                        "evidence": str(folder.relative_to(directory) / h["evidence"])} for h in parsed["hotspots"])
+            if sample_validation and solved['status']!='PASS':
+                result['correctness']['status']='failed'
+                result['correctness']['sample_validation_status']='failed'
+                raise LabError('correctness_failed','Per-solve numerical acceptance failed',{'sample':index,'violations':solved['violations']})
             if selected == "massif":
                 # Full allocation trees are already retained; human rendering is optional.
                 from shutil import which
@@ -189,6 +224,8 @@ def run(request, store):
             result.setdefault("limitations", []).extend(parsed.get("limitations", []))
         if len(result["samples"]) != config["repetitions"]:
             raise LabError("parse_failed", "Unexpected number of measurement samples")
+        if sample_validation:
+            result['correctness']['sample_validation_status']='passed'
         for category, items in result["identity"].items():
             for path, original in items.items():
                 if sha256(path) != original:

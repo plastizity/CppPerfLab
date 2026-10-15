@@ -48,7 +48,7 @@ def acceptance(result, policy, direction):
 
 
 def compare(a, b, metric_name="time.wall", allow_command_change=False,
-            regression_fraction=0.05, policy=None):
+            regression_fraction=0.05, policy=None, varying_parameter=None):
     policy = validate_policy(policy if policy is not None else {"schema_version":1, "min_samples":MIN_COMPARISON_SAMPLES,
                              "max_cv":MAX_COMPARISON_CV, "max_regression_fraction":regression_fraction})
     direction = policy.get("direction", DEFINITIONS.get(metric_name, {}).get("expected_direction", "none"))
@@ -58,6 +58,12 @@ def compare(a, b, metric_name="time.wall", allow_command_change=False,
             (r.get("error") or {}).get("category") in ("unavailable","permission_denied") for r in (a,b)) else "INCONCLUSIVE")
         raise LabError("incomparable", "Correctness must pass before performance scoring",
                        {"acceptance": {"status":state, "reason":"correctness gate"}, "correctness":correctness})
+    validation_contracts=[r['request']['correctness'].get('sample_validation') for r in (a,b)]
+    if any(validation_contracts) or metric_name.startswith(('solver.','numerical.')):
+        if not all(validation_contracts) or any(r['correctness'].get('sample_validation_status')!='passed' or
+                len(r.get('solver_samples',[]))!=len(r['samples']) or
+                any(s['status']!='PASS' for s in r.get('solver_samples',[])) for r in (a,b)):
+            raise LabError('incomparable','Passed per-solve validation required',{'acceptance':{'status':'INCONCLUSIVE','reason':'per-solve validation missing or failed'}})
     differences = []
     def same(label, left, right):
         if left != right:
@@ -67,8 +73,16 @@ def compare(a, b, metric_name="time.wall", allow_command_change=False,
     same("candidate_completed", b["status"], "completed")
     if a["status"] != "completed" or b["status"] != "completed":
         raise LabError("incomparable", "Only completed experiments can be compared", {"differences": differences})
-    for key in ("id", "parameters"):
-        same("workload." + key, a["request"]["workload"][key], b["request"]["workload"][key])
+    same('workload.id',a['request']['workload']['id'],b['request']['workload']['id'])
+    parameters=[{k:v for k,v in r['request']['workload']['parameters'].items() if k!=varying_parameter} for r in (a,b)]
+    same('workload.parameters',*parameters)
+    if varying_parameter is not None:
+        require(all(varying_parameter in r['request']['workload']['parameters'] for r in (a,b)), 'Declared varying parameter missing')
+    same('sample_validation_contract',*validation_contracts)
+    if all(validation_contracts):
+        validator_identities=[{p:digest for p,digest in r['identity']['artifacts'].items() if p in c['argv']}
+                              for r,c in zip((a,b),validation_contracts)]
+        same('sample_validator_artifacts',*validator_identities)
     same("inputs", a["identity"]["inputs"], b["identity"]["inputs"])
     for key in ("id", "version", "mode"):
         same("tool." + key, a["tool"][key], b["tool"][key])
@@ -113,7 +127,8 @@ def compare(a, b, metric_name="time.wall", allow_command_change=False,
         raise LabError("incomparable", "Ratio comparison requires positive finite samples")
     am, bm = statistics.median(av), statistics.median(bv)
     rng = random.Random(1014)
-    ratios = sorted(statistics.median(rng.choices(av, k=len(av))) /
+    reference_identity = a["run_id"] == b["run_id"]
+    ratios = [1.0] * 5000 if reference_identity else sorted(statistics.median(rng.choices(av, k=len(av))) /
                     statistics.median(rng.choices(bv, k=len(bv))) for _ in range(5000))
     ci = [ratios[125], ratios[4874]]
     cv = [statistics.stdev(v) / statistics.mean(v) if len(v) > 1 else None for v in (av, bv)]
@@ -134,12 +149,13 @@ def compare(a, b, metric_name="time.wall", allow_command_change=False,
             "bootstrap_95_percent_speedup": ci, "coefficient_of_variation": cv,
             "classification": classification, "sufficient_samples": sufficient, "stable_samples": stable,
             "policy": {"min_samples": policy["min_samples"], "max_cv": policy["max_cv"], "material_fraction": regression_fraction,
-                       "bootstrap_resamples": 5000, "seed": 1014, "paired": False},
+                       "bootstrap_resamples": 0 if reference_identity else 5000, "seed": 1014, "paired": False,
+                       "reference_identity": reference_identity},
             "treatment": {"baseline_argv": a["request"]["target"]["argv"],
                           "candidate_argv": b["request"]["target"]["argv"],
                           "baseline_build": a["request"]["target"]["build"],
                           "candidate_build": b["request"]["target"]["build"],
-                          "command_change_acknowledged": allow_command_change},
+                          "command_change_acknowledged": allow_command_change, "varying_parameter":varying_parameter},
             "limitations": ["Unpaired bootstrap is descriptive and cannot remove thermal/load/order drift.",
                             "An observed improvement is not automatic optimization acceptance; repeat interleaved A/B and review oracle coverage."]}
 
@@ -151,7 +167,38 @@ def compare(a, b, metric_name="time.wall", allow_command_change=False,
     result['ratio_semantics'] = 'baseline / candidate; not a runtime speedup unless a time metric'
     result['runtime_reduction'] = 1-bm/am if metric_name.startswith('time.') else None
     result['regression_status'] = result['acceptance']['status']
+    result['normalized_cost'] = normalized_cost(result)
     return result
+
+
+def normalized_cost(result):
+    """Project an existing comparison; never collect or recompute statistics.
+
+    A cost is an observed relative objective, not an optimization acceptance.
+    Legacy records without explicit evidence/correctness gates remain unscored.
+    """
+    gate = result.get('acceptance', {'status':'INCONCLUSIVE', 'reason':'Acceptance evidence missing'})
+    cost = {'schema_version':1, 'metric':result['metric'], 'baseline':1,
+            'unit':'ratio', 'lower_is_better':True, 'value':None,
+            'interval_95_percent':None, 'evidence_state':'Missing',
+            'acceptance_status':gate['status'], 'reason':gate['reason']}
+    if not result['comparable']:
+        cost['reason'] = 'Comparison rejected; no valid relative cost'
+        cost['evidence_state'] = 'Unsupported' if gate['status']=='UNSUPPORTED' else 'Invalid'
+        return cost
+    if result.get('correctness_status') != 'passed' or result.get('input_evidence_state') != 'Measured':
+        cost['reason'] = 'Explicit passed correctness and measured input evidence required; rerun comparison'
+        return cost
+    direction = result['acceptance_policy'].get('direction', DEFINITIONS.get(result['metric'], {}).get('expected_direction','none'))
+    cost['direction'] = direction
+    if direction == 'none':
+        cost['reason'] = 'No declared optimization direction for this diagnostic metric'
+        return cost
+    lo, hi = result['bootstrap_95_percent_speedup']
+    cost.update(value=1/result['speedup'] if direction=='lower' else result['speedup'],
+                interval_95_percent=[1/hi,1/lo] if direction=='lower' else [lo,hi],
+                evidence_state='Estimated')
+    return cost
 
 
 def analyze(result):

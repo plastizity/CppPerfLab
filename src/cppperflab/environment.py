@@ -38,6 +38,8 @@ def discover():
 
 def fingerprints(request, directory):
     paths = [request["target"]["argv"][0], request["correctness"]["argv"][0]]
+    if 'sample_validation' in request['correctness']:
+        paths.append(request['correctness']['sample_validation']['argv'][0])
     paths += request["target"]["build"]["artifacts"]
     artifact_hashes = {p: sha256(p) for p in sorted(set(paths))}
     inputs = {p: sha256(p) for p in request["workload"]["inputs"]}

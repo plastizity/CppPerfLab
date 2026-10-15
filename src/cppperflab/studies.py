@@ -109,7 +109,7 @@ def load_study(path):
         spec = json.loads(path.read_text())
     except (ValueError, OSError) as error:
         raise LabError("invalid_request", "Cannot read study", {"reason": str(error)}) from error
-    fields(spec, ("schema_version", "name", "template", "axis", "variants", "budget", "seed", "metric", "constraints", "secondary_metrics"),
+    fields(spec, ("schema_version", "name", "template", "axis", "variants", "budget", "seed", "metric", "constraints", "secondary_metrics", "analysis"),
            ("schema_version", "name", "template", "axis", "variants", "budget", "seed", "metric", "constraints"), "study")
     require(type(spec["schema_version"]) is int and spec["schema_version"] == 1, "Unsupported study schema")
     require(all(isinstance(spec[k], str) and spec[k] for k in ("name", "template", "metric", "constraints")), "study textual fields must be nonempty")
@@ -127,6 +127,10 @@ def load_study(path):
     for value in axis["values"]:
         positive(value, "scale")
     require(len(axis["values"]) == len(set(axis["values"])), "duplicate scales")
+    require(spec.get('analysis','growth') in ('growth','strong_scaling'), 'Unknown study analysis')
+    if spec.get('analysis')=='strong_scaling':
+        require(all(type(v) is int for v in axis['values']) and 1 in axis['values'], 'Strong scaling requires integer worker counts including 1')
+        require(spec['metric'] in ('time.wall','time.iteration.wall'), 'Strong scaling requires elapsed time')
     index = axis["argument_index"]
     require(type(index) is int and 1 <= index < len(template["target"]["argv"]), "argument_index must address a target argument, not executable")
     require(isinstance(spec["variants"], list) and bool(spec["variants"]), "variants required")
@@ -186,7 +190,12 @@ def study(path, store):
                     summaries=[s for s in measured['summary'] if s['name']==metric_name]
                     require(len(summaries)==1,'Study metric missing or has mixed semantics')
                     points.append({'x':scale,'run_id':measured['run_id'],**summaries[0]})
-                destination[variant['id']]=fit_growth(points) if len(points)>=4 else {'points':points,'limitations':['Need at least four scales for fitting']}
+                if spec.get('analysis')=='strong_scaling':
+                    if metric_name==spec['metric']:
+                        result.setdefault('scaling',{})[variant['id']]=strong_scaling(results,variant['id'],spec)
+                    destination[variant['id']]={'points':points,'limitations':['Worker sweep: no algorithm growth fit; fixed workload required.']}
+                else:
+                    destination[variant['id']]=fit_growth(points) if len(points)>=4 else {'points':points,'limitations':['Need at least four scales for fitting']}
         first = spec["variants"][0]["id"]
         for scale in spec["axis"]["values"]:
             for variant in spec["variants"][1:]:
@@ -203,3 +212,27 @@ def study(path, store):
         result["ended_at"] = utc()
         write_json(directory / "study.json", result)
     return result
+
+
+def strong_scaling(results, variant, spec):
+    """Reuse comparison gates and intervals; only declared worker argument may vary."""
+    baseline=results[(variant,1)]
+    index=spec['axis']['argument_index']
+    rows=[]
+    for workers in sorted(spec['axis']['values']):
+        candidate=results[(variant,workers)]
+        for r in (baseline,candidate):
+            require(r['request']['target']['argv'][index]==str(r['request']['workload']['parameters'][spec['axis']['parameter']]), 'Worker argument does not match declared parameter')
+        require(baseline['request']['target']['argv'][:index]+baseline['request']['target']['argv'][index+1:]==candidate['request']['target']['argv'][:index]+candidate['request']['target']['argv'][index+1:], 'Only worker argument may change')
+        require(baseline['identity']['artifacts']==candidate['identity']['artifacts'], 'Strong scaling requires identical artifact fingerprints')
+        c=compare(baseline,candidate,spec['metric'],allow_command_change=True,varying_parameter=spec['axis']['parameter'])
+        rows.append({'workers':workers,'speedup':c['speedup'],'efficiency':c['speedup']/workers,
+                     'speedup_interval_95_percent':c['bootstrap_95_percent_speedup'],
+                     'efficiency_interval_95_percent':[x/workers for x in c['bootstrap_95_percent_speedup']],
+                     'evidence_state':'Estimated','measurement_status':'PASS' if c['sufficient_samples'] and c['stable_samples'] else 'INCONCLUSIVE',
+                     'comparison':c})
+    return {'mode':'strong_scaling','points':rows,'constraints':spec['constraints'],
+            'limitations':['Fixed problem size is a caller declaration; platform checks stored controls, not algorithm semantics.',
+                           'Worker count is requested, not an independently observed active-thread count.',
+                           'Unpaired descriptive intervals include order/load effects; no automatic optimization acceptance.',
+                           'One-worker reference uses the same run, not an independent repeat.']}

@@ -97,6 +97,8 @@ def run_view(result):
         view["evidence"].append({**item, "id": evidence_id(rid, item["path"]), "run_id": rid})
     existing = analyze(result)
     view["facts"], view["hypotheses"] = existing["facts"], existing["hypotheses"]
+    for solved in result.get('solver_samples',[]):
+        view['facts'].append({'kind':'observation','solver_sample':solved})
     view["limitations"] = list(dict.fromkeys(existing["limitations"] + [
         "Hotspot rows belong to individual sampling repetitions; percentages are not summed across runs.",
         "Correctness passed means the declared command exited zero within its stated coverage."]))
@@ -105,6 +107,8 @@ def run_view(result):
 
 
 def comparison_view(result):
+    from .comparison import normalized_cost
+    result = dict(result, normalized_cost=normalized_cost(result))
     if not result["comparable"]:
         view = base_view("comparison", result["comparison_id"], "incomparable", result["error"])
         view["overview"] = {k: result[k] for k in ("baseline_id", "candidate_id", "metric", "comparable")}
@@ -121,6 +125,7 @@ def comparison_view(result):
         "baseline_median", "candidate_median", "speedup", "change_fraction",
         "bootstrap_95_percent_speedup", "coefficient_of_variation")}
     view["overview"]["acceptance"] = result.get("acceptance")
+    view["overview"]["normalized_cost"] = result["normalized_cost"]
     view["conditions"] = {"policy": result["policy"], "treatment": result["treatment"],
                           "acceptance_policy":result.get("acceptance_policy")}
     view["comparisons"] = [result]
@@ -142,6 +147,9 @@ def study_view(result):
                         "runs": result["runs"], "variants": [v["id"] for v in spec["variants"]]}
     view["conditions"] = {"spec": spec, "started_at": result["started_at"],
                           "ended_at": result.get("ended_at")}
+    if "scaling" in result:
+        view["overview"]["scaling"] = result["scaling"]
+        view["facts"].append({"kind":"statistical_inference","strong_scaling":result["scaling"]})
     meanings = set()
     series=list(result['growth'].items())+[(variant,fitted) for variants in result.get('secondary_growth',{}).values() for variant,fitted in variants.items()]
     by_metric={}
@@ -153,22 +161,22 @@ def study_view(result):
             by_metric.setdefault(point["name"],set()).add(meaning)
         view["growth"].append({"variant": variant, **fitted})
         view["limitations"].extend(fitted["limitations"])
-        view["quality"].append({"code": "empirical_growth", "severity": "review",
+        view["quality"].append({"code": "strong_scaling_sweep" if spec.get("analysis")=="strong_scaling" else "empirical_growth", "severity": "review",
                                 "variant": variant,
-                                "message": "Finite-range empirical fit; not a mathematical Big-O proof."})
+                                "message": "Fixed-work worker sweep; see scaling evidence." if spec.get("analysis")=="strong_scaling" else "Finite-range empirical fit; not a mathematical Big-O proof."})
         for point in points:
             if point["n"] < MIN_COMPARISON_SAMPLES or point["cv"] is None or point["cv"] > MAX_COMPARISON_CV:
-                view["quality"].append({"code": "growth_point_uncertain", "severity": "review",
+                view["quality"].append({"code": "scaling_point_uncertain" if spec.get("analysis")=="strong_scaling" else "growth_point_uncertain", "severity": "review",
                                         "variant": variant, "scale": point["x"], "run_id": point["run_id"],
                                         "n": point["n"], "cv": point["cv"],
-                                        "message": "Model ranking includes an uncertain measurement point."})
+                                        "message": "Worker sweep includes an uncertain measurement point." if spec.get("analysis")=="strong_scaling" else "Model ranking includes an uncertain measurement point."})
     view["conditions"]["growth_metric_semantics"] = [dict(zip(("name", "unit", "method", "scope"), m))
                                                        for m in sorted(meanings)]
     if any(len(values)>1 for values in by_metric.values()):
         view["quality"].append({"code": "mixed_growth_semantics", "severity": "error",
                                 "message": "Growth series contain different metric meanings; do not overlay or rank them together."})
     view["comparisons"] = result["comparisons"]
-    view["facts"] = [{"kind": "observation", "run": r} for r in result["runs"]]
+    view["facts"].extend({"kind": "observation", "run": r} for r in result["runs"])
     view["limitations"] = list(dict.fromkeys(view["limitations"] + [
         "A study evaluates reviewed prebuilt variants; it is not an automatic optimizer.",
         "Each scale comparison retains its own classification; the fastest point does not select a production algorithm."]))

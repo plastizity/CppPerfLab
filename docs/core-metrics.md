@@ -111,9 +111,52 @@ Verified entry path for Agents: AGENTS → existing cpp-performance Skill → me
 reference → actual CLI. No model-specific service or global Skill registration was
 added. D13/D15/D16/D17 remain deferred/out of scope.
 
-Core registry/evidence/formulas/query/comparison are implemented. Next work is
-workload-driven: D07 scaling treatment and D12 explicit region/counter ingestion,
-then D14 per-execution output validation. DAG, scheduler, NUMA traffic, physical I/O,
+Core registry/evidence/formulas/query/comparison are implemented. D07 fixed-work
+strong scaling and D12 explicit stage/work counters now have callable interfaces
+and real synthetic validation; see [scientific experiments](scientific-performance.md).
+D14 now supports explicit solver logs and independent per-solve numerical gates;
+see [solver validation](solver-validation.md). DAG, scheduler, NUMA traffic, physical I/O,
 Roofline, TMA and other advanced adapters are not implemented by this increment.
 
 D01–D05 后续已实现 Callgrind/DHAT/Cachegrind、Kernel 显式计数和 secondary_metrics 多指标增长；接口及实测范围见 [domains-1-5.md](domains-1-5.md)。
+
+
+## Normalized performance cost
+
+`perflab compare BASELINE CANDIDATE --json` returns `normalized_cost` alongside
+existing ratios and acceptance. Baseline is 1 and smaller is better:
+
+- Lower objective (for example elapsed time): candidate median / baseline median.
+- Higher objective (for example throughput): baseline median / candidate median.
+- The 95% descriptive bootstrap interval is transformed from the existing comparison
+  interval; inverse transforms reverse endpoints. No additional statistical engine runs.
+
+For time, 0.7 means 30% less observed elapsed time, not 30% faster throughput.
+Cost is Estimated from Measured inputs. It retains the selected metric, scope through
+its parent comparison, policy, raw samples and source run IDs. It is a relative value
+for one workload and metric, not an absolute quality rating or a cross-workload rank.
+
+The comparison's correctness, comparability and measured-evidence gates must pass
+before a numeric cost exists. Rejected comparisons return null. Legacy comparisons
+without explicit correctness/evidence gates remain unscored; rerun `compare` on the
+archived runs to evaluate them without changing the original records. Diagnostics
+such as IPC require an explicit, justified policy direction before receiving a cost.
+
+A numeric observation does not mean acceptance: noisy or insufficient samples keep
+INCONCLUSIVE, and confirmed regressions keep FAIL. Inspect `acceptance_status` and
+`reason` together with `value` and `interval_95_percent`. Correctness remains a hard
+gate; a faster candidate with invalid output cannot receive a cost.
+
+Use existing metric-specific comparisons for resource details, e.g.:
+
+```bash
+perflab compare BASELINE CANDIDATE --metric time.wall --json
+perflab compare HEAP_BASELINE HEAP_CANDIDATE --metric memory.heap_peak_live --json
+perflab summarize --comparison TIME_COMPARISON --comparison HEAP_COMPARISON --json
+perflab report TIME_COMPARISON --kind comparison --format html --output cost.html
+```
+
+Summaries retain each metric's cost and acceptance independently; they do not
+combine memory, timing and diagnostic observations into one score or infer an overall
+PASS. Cross-profiler workload correlation and a joint resource-gated verdict are
+not implemented. Do not accept a candidate solely because its time cost is small.
