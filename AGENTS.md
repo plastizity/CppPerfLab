@@ -23,10 +23,14 @@ Reject malformed external inputs; propagate failures and keep evidence. Internal
 contract violations must not be turned into empty/normal results. Do not add
 speculative recovery, retries, compatibility paths or architecture layers.
 
-Validate focused Python tests and actual adapters affected by changes. Performance
-experiments run serially; unrelated CPU-heavy checks must not overlap measurements.
-If interface-stable independent documentation or tests are delegated, keep write
-sets disjoint. Preserve statistical limitations and report no unmeasured speedup.
+Validate focused Python tests and actual adapters affected by changes. Independent
+Agent tasks and multithreaded workloads may run concurrently; keep delegated write
+sets disjoint. Independent performance experiments run serially by default.
+Explicitly configured concurrent A/B comparisons may run both targets together;
+record actual overlap, thread counts, CPU affinity and resource competition
+conditions, and keep comparison blocks serial. Do not treat concurrent competition
+results as isolated serial measurements. Unrelated CPU-heavy checks must not overlap
+measurements. Preserve statistical limitations and report no unmeasured speedup.
 
 The session's `.agents` and `.codex` are read-only. This AGENTS entry provides
 project-local discovery and explicit loading; it does not claim UI/catalog
