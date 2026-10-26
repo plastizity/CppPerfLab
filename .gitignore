@@ -16,3 +16,6 @@ CMakeUserPresets.json
 
 # Local implementation plan
 /docs/performance-expansion-plan-local.md
+
+# Generated synthetic input for scripts/make_phase_example.py
+workloads/phase-text-input.txt

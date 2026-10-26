@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cppperflab:activity-timeline:1",
+  "title": "CppPerfLab application activity timeline",
+  "type": "object",
+  "properties": {
+    "schema_version": {"const": 1},
+    "scope": {"type": "string", "minLength": 1},
+    "evidence_state": {"$ref": "#/$defs/evidenceState"},
+    "evidence": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "run_status": {"type": "string", "minLength": 1},
+    "source_error": {"type": ["object", "null"]},
+    "error": {"type": "null"},
+    "execution_stage": {"type": "string", "minLength": 1},
+    "measurement_group": {"type": "integer", "minimum": 0},
+    "selection_status": {"type": "string", "minLength": 1},
+    "tracks": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/track"}
+    },
+    "os_scheduler": {
+      "type": "object",
+      "properties": {
+        "evidence_state": {"const": "Missing"},
+        "reason": {"type": "string", "minLength": 1}
+      },
+      "required": ["evidence_state", "reason"],
+      "additionalProperties": false
+    },
+    "limitations": {"type": "array", "items": {"type": "string", "minLength": 1}}
+  },
+  "required": ["schema_version", "scope", "evidence_state", "evidence", "tracks", "os_scheduler", "limitations"],
+  "additionalProperties": false,
+  "$defs": {
+    "evidenceState": {
+      "enum": ["Measured", "Estimated", "Modeled", "Unsupported", "Missing", "Invalid"]
+    },
+    "nullableSeconds": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "track": {
+      "type": "object",
+      "properties": {
+        "track_id": {"type": "string", "minLength": 1},
+        "pid": {"type": ["integer", "null"], "minimum": 1},
+        "tid": {"type": ["integer", "null"], "minimum": 1},
+        "identity_state": {"enum": ["Measured", "Missing"]},
+        "observed_seconds": {"type": "number", "minimum": 0},
+        "work_seconds": {"$ref": "#/$defs/nullableSeconds"},
+        "wait_seconds": {"$ref": "#/$defs/nullableSeconds"},
+        "unclassified_seconds": {"type": "number", "minimum": 0},
+        "wait_fraction": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "annotation_coverage_fraction": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "wait_reasons": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "reason": {"type": "string", "minLength": 1},
+              "seconds": {"type": "number", "minimum": 0}
+            },
+            "required": ["reason", "seconds"],
+            "additionalProperties": false
+          }
+        },
+        "intervals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "start_ns": {"type": "integer", "minimum": 0},
+              "end_ns": {"type": "integer", "minimum": 0},
+              "kind": {"enum": ["application_work", "application_wait", "unclassified"]},
+              "reason": {"type": ["string", "null"]},
+              "phase_ids": {"type": "array", "items": {"type": "string", "minLength": 1}}
+            },
+            "required": ["start_ns", "end_ns", "kind", "reason", "phase_ids"],
+            "additionalProperties": false
+          }
+        },
+        "correctness_status": {"enum": ["passed", "failed", "not_checked"]}
+      },
+      "required": ["track_id", "pid", "tid", "identity_state", "observed_seconds", "work_seconds", "wait_seconds", "unclassified_seconds", "wait_fraction", "annotation_coverage_fraction", "wait_reasons", "intervals", "correctness_status"],
+      "additionalProperties": false
+    }
+  }
+}

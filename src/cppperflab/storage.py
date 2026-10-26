@@ -9,6 +9,11 @@ from .errors import LabError
 from .protocol import sha256
 
 
+_RECORDS={"run": ("runs", "result.json"), "study": ("studies", "study.json"),
+          "comparison": ("comparisons", "comparison.json"), "summary": ("summaries", "summary.json"),
+          "collection": ("collections", "collection.json")}
+
+
 def write_json(path, value):
     path = Path(path)
     temp = path.with_suffix(path.suffix + ".tmp")
@@ -35,12 +40,9 @@ class Store:
     def record_path(self, identifier, kind="run"):
         if not re.fullmatch(r"\d{8}T\d{6}-[0-9a-f]{12}", identifier):
             raise LabError("invalid_request", "Invalid run ID")
-        records = {"run": ("runs", "result.json"), "study": ("studies", "study.json"),
-                   "comparison": ("comparisons", "comparison.json"),
-                   "summary": ("summaries", "summary.json")}
-        if kind not in records:
+        if kind not in _RECORDS:
             raise LabError("invalid_request", "Unknown record kind")
-        folder, filename = records[kind]
+        folder, filename = _RECORDS[kind]
         return self.root / folder / identifier / filename
 
     def read(self, identifier, kind="run"):
@@ -52,8 +54,10 @@ class Store:
             raise LabError("unsupported_schema", "Unsupported result version")
         return result
 
-    def list(self):
-        return [self.read(p.parent.name) for p in sorted((self.root / "runs").glob("*/result.json"))]
+    def list(self,kind='run'):
+        if kind not in _RECORDS:raise LabError('invalid_request','Unknown record kind')
+        folder,filename=_RECORDS[kind]
+        return [self.read(p.parent.name,kind) for p in sorted((self.root/folder).glob('*/'+filename))]
 
     def baseline(self, name, run_id):
         if not re.fullmatch(r"[a-zA-Z0-9_.-]+", name) or name in (".", ".."):

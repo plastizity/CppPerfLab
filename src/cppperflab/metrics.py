@@ -115,6 +115,30 @@ for name,category,unit,formula,direction in [
     DEFINITIONS[name]=definition(name,['D14'],category,unit,formula,'one solve with explicit independent validator and numerical gates',direction)
 
 
+for name,unit,formula,category,direction in [
+    ('phase.inclusive_time','seconds','sum of reported call wall durations at one stage path','Outcome','lower'),
+    ('phase.self_time','seconds','reported self wall total, or parent minus complete child intervals; aggregate-only child subtraction remains Estimated','Outcome','lower'),
+    ('phase.calls','count','number of reported calls at one stage path','Diagnostic','none'),
+    ('phase.work','declared counter unit','sum of same-name same-unit target counters at one stage path','Diagnostic','none'),
+    ('phase.covered_wall','seconds','union of top-level intervals across tracks','Diagnostic','none'),
+    ('phase.uncovered_wall','seconds','root wall duration minus covered wall union','Diagnostic','none'),
+    ('phase.root_wall','seconds','declared root end - start; not necessarily whole process','Outcome','lower'),
+]:
+    DEFINITIONS[name]=definition(name,['D12','D07'],category,unit,formula,'explicit target phase report; clock/child coverage and work units declared',direction)
+
+for name,unit,formula in [
+    ('phase.application_wait_wall','seconds','per-track union duration of explicit application_wait annotations'),
+    ('phase.application_work_wall','seconds','per-track union duration of explicit application_work annotations'),
+    ('phase.application_unclassified_wall','seconds','observed root interval union minus explicitly classified interval unions on one track'),
+    ('phase.application_observed_wall','seconds','per-track union duration of recorded root intervals'),
+    ('phase.application_wait_fraction','ratio','recorded application wait union / observed root union on the same track'),
+]:
+    DEFINITIONS[name]=definition(name,['D07','D08','D09'],'Diagnostic',unit,formula,
+        'explicit caller annotations on one producer track; wall scopes include scheduling and API return overhead; not OS running/off-CPU time')
+    DEFINITIONS[name]['comparison_constraints']+=['same producer track and annotation classification contract',
+        'missing work/wait markers are not zero; lower wait fraction alone is not optimization acceptance']
+
+
 def catalog(registry, domain=None, metric_id=None):
     require(domain is None or domain in {d for v in DEFINITIONS.values() for d in v['domains']}, 'Unknown or unimplemented domain')
     require(metric_id is None or metric_id in DEFINITIONS, 'Unknown metric')
@@ -124,10 +148,12 @@ def catalog(registry, domain=None, metric_id=None):
             continue
         operands = spec['operands'] or [name]
         from .solver import METRIC_IDS
+        from .phases import METRIC_IDS as PHASE_METRICS
+        phase_metric=name in PHASE_METRICS
         solver_metric=name in METRIC_IDS
-        providers = [key for key, adapter in registry.items() if (not adapter.batch if solver_metric else set(operands) <= set(adapter.metrics))]
+        providers = [key for key, adapter in registry.items() if (not adapter.batch if solver_metric or phase_metric else set(operands) <= set(adapter.metrics))]
         result.append({**spec, 'source_capability': operands,
-                       'providers': providers, 'collection_method': 'explicit post-sample solver validation' if solver_metric else 'same-sample derivation' if spec['operands'] else ('study' if name.startswith('parallel.') or name in ('algorithm.growth_ratio','algorithm.doubling_ratio','algorithm.empirical_exponent') else 'adapter')})
+                       'providers': providers, 'collection_method': 'explicit per-execution interval or declared summary phase report' if phase_metric else 'explicit post-sample solver validation' if solver_metric else 'same-sample derivation' if spec['operands'] else ('study' if name.startswith('parallel.') or name in ('algorithm.growth_ratio','algorithm.doubling_ratio','algorithm.empirical_exponent') else 'adapter')})
     return {'schema_version': 1, 'metrics': result,
             'note': 'Definitions and provider declarations are not availability claims; use tools probe and plan.'}
 

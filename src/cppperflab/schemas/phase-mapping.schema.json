@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cppperflab:phase-mapping:1",
+  "title": "CppPerfLab phase log mapping",
+  "type": "object",
+  "properties": {
+    "schema_version": {"const": 1},
+    "scope": {"type": "string", "minLength": 1},
+    "unmatched_lines": {"enum": ["ignore", "error"]},
+    "rules": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/rule"}}
+  },
+  "required": ["schema_version", "scope", "unmatched_lines", "rules"],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {"properties": {"unmatched_lines": {"const": "ignore"}}, "required": ["unmatched_lines"]},
+      "then": {"properties": {"rules": {"items": {"allOf": [{"if": {"required": ["format"]}, "then": {"required": ["keyword"]}}]}}}}
+    }
+  ],
+  "$defs": {
+    "capture": {"type": "string", "minLength": 1},
+    "rule": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1},
+        "parent_id": {"type": ["string", "null"]},
+        "keyword": {"type": "string", "minLength": 1},
+        "format": {"type": "string", "minLength": 1},
+        "pattern": {"type": "string", "minLength": 1},
+        "aggregation": {"enum": ["single", "sum"]},
+        "required": {"type": "boolean"},
+        "children_coverage": {"enum": ["unknown", "complete_nonoverlapping"]},
+        "inclusive": {"$ref": "#/$defs/inclusive"},
+        "self": {"$ref": "#/$defs/time"},
+        "calls": {"$ref": "#/$defs/calls"},
+        "correctness": {"$ref": "#/$defs/correctness"},
+        "work": {"type": "object", "additionalProperties": {"$ref": "#/$defs/work"}}
+      },
+      "required": ["id", "name", "parent_id", "aggregation", "required", "children_coverage"],
+      "additionalProperties": false,
+      "oneOf": [
+        {"required": ["format"], "not": {"required": ["pattern"]}},
+        {"required": ["keyword", "pattern"], "not": {"required": ["format"]}},
+        {"required": ["keyword"], "not": {"anyOf": [{"required": ["format"]}, {"required": ["pattern"]}]}}
+      ],
+      "allOf": [
+        {"if": {"required": ["format"]}, "then": {"properties": {"inclusive": {"$ref": "#/$defs/groupInclusive"}, "self": {"$ref": "#/$defs/groupTime"}, "calls": {"$ref": "#/$defs/groupCalls"}, "correctness": {"$ref": "#/$defs/groupCorrectness"}, "work": {"type": "object", "additionalProperties": {"$ref": "#/$defs/groupWork"}}}}},
+        {"if": {"required": ["pattern"]}, "then": {"properties": {"inclusive": {"$ref": "#/$defs/groupInclusive"}, "self": {"$ref": "#/$defs/groupTime"}, "calls": {"$ref": "#/$defs/groupCalls"}, "correctness": {"$ref": "#/$defs/groupCorrectness"}, "work": {"type": "object", "additionalProperties": {"$ref": "#/$defs/groupWork"}}}}},
+        {"if": {"not": {"anyOf": [{"required": ["format"]}, {"required": ["pattern"]}]}}, "then": {"properties": {"inclusive": {"$ref": "#/$defs/keywordInclusive"}, "self": {"$ref": "#/$defs/keywordTime"}, "calls": {"$ref": "#/$defs/keywordCalls"}, "correctness": {"$ref": "#/$defs/keywordCorrectness"}, "work": {"type": "object", "additionalProperties": {"$ref": "#/$defs/keywordWork"}}}}},
+        {"if": {"properties": {"inclusive": {"properties": {"kind": {"const": "per_call_mean"}}, "required": ["kind"]}}, "required": ["inclusive"]}, "then": {"required": ["calls"]}}
+      ]
+    },
+    "inclusive": {"type": "object", "properties": {"group": {"$ref": "#/$defs/capture"}, "keyword": {"$ref": "#/$defs/capture"}, "unit": {"enum": ["s", "ms", "us", "ns"]}, "kind": {"enum": ["total", "per_call_mean"]}}, "required": ["unit", "kind"], "additionalProperties": false},
+    "time": {"type": "object", "properties": {"group": {"$ref": "#/$defs/capture"}, "keyword": {"$ref": "#/$defs/capture"}, "unit": {"enum": ["s", "ms", "us", "ns"]}}, "required": ["unit"], "additionalProperties": false},
+    "calls": {"type": "object", "properties": {"group": {"$ref": "#/$defs/capture"}, "keyword": {"$ref": "#/$defs/capture"}}, "additionalProperties": false},
+    "correctness": {"type": "object", "properties": {"group": {"$ref": "#/$defs/capture"}, "keyword": {"$ref": "#/$defs/capture"}, "values": {"type": "object", "minProperties": 1, "additionalProperties": {"enum": ["passed", "failed", "not_checked"]}}}, "required": ["values"], "additionalProperties": false},
+    "work": {"type": "object", "properties": {"group": {"$ref": "#/$defs/capture"}, "keyword": {"$ref": "#/$defs/capture"}, "unit": {"type": "string", "minLength": 1}, "evidence_state": {"enum": ["Measured", "Estimated", "Modeled"]}}, "required": ["unit", "evidence_state"], "additionalProperties": false},
+    "keywordInclusive": {"$ref": "#/$defs/inclusive", "properties": {"keyword": {"$ref": "#/$defs/capture"}}, "required": ["keyword"], "not": {"required": ["group"]}},
+    "keywordTime": {"$ref": "#/$defs/time", "properties": {"keyword": {"$ref": "#/$defs/capture"}}, "required": ["keyword"], "not": {"required": ["group"]}},
+    "keywordCalls": {"$ref": "#/$defs/calls", "properties": {"keyword": {"$ref": "#/$defs/capture"}}, "required": ["keyword"], "not": {"required": ["group"]}},
+    "keywordCorrectness": {"$ref": "#/$defs/correctness", "properties": {"keyword": {"$ref": "#/$defs/capture"}}, "required": ["keyword"], "not": {"required": ["group"]}},
+    "keywordWork": {"$ref": "#/$defs/work", "properties": {"keyword": {"$ref": "#/$defs/capture"}}, "required": ["keyword"], "not": {"required": ["group"]}},
+    "groupInclusive": {"$ref": "#/$defs/inclusive", "properties": {"group": {"$ref": "#/$defs/capture"}}, "required": ["group"], "not": {"required": ["keyword"]}},
+    "groupTime": {"$ref": "#/$defs/time", "properties": {"group": {"$ref": "#/$defs/capture"}}, "required": ["group"], "not": {"required": ["keyword"]}},
+    "groupCalls": {"$ref": "#/$defs/calls", "properties": {"group": {"$ref": "#/$defs/capture"}}, "required": ["group"], "not": {"required": ["keyword"]}},
+    "groupCorrectness": {"$ref": "#/$defs/correctness", "properties": {"group": {"$ref": "#/$defs/capture"}}, "required": ["group"], "not": {"required": ["keyword"]}},
+    "groupWork": {"$ref": "#/$defs/work", "properties": {"group": {"$ref": "#/$defs/capture"}}, "required": ["group"], "not": {"required": ["keyword"]}}
+  }
+}

@@ -103,12 +103,23 @@ def fit_growth(points):
             "local_slopes": slopes, "measured_range": [ns[0], ns[-1]], "limitations": warnings}
 
 
-def load_study(path):
+def load_study(path,store=None):
     path = Path(path).resolve()
     try:
-        spec = json.loads(path.read_text())
+        spec = json.loads(path.read_text(),parse_constant=lambda s: (_ for _ in ()).throw(ValueError(s)))
     except (ValueError, OSError) as error:
         raise LabError("invalid_request", "Cannot read study", {"reason": str(error)}) from error
+    if isinstance(spec,dict) and spec.get('analysis')=='assessment':
+        require(store is not None,'Assessments require the selected Store for archived samples')
+        from .assessment import load_assessment
+        return load_assessment(spec,path.parent,store)
+    if isinstance(spec,dict) and spec.get('analysis')=='cases':
+        require(store is not None,'Case studies require the selected Store for archived samples')
+        from .cases import load_cases
+        return load_cases(spec,path.parent,store)
+    if isinstance(spec,dict) and spec.get('analysis')=='paired':
+        from .paired import load_paired
+        return load_paired(spec,path.parent)
     fields(spec, ("schema_version", "name", "template", "axis", "variants", "budget", "seed", "metric", "constraints", "secondary_metrics", "analysis"),
            ("schema_version", "name", "template", "axis", "variants", "budget", "seed", "metric", "constraints"), "study")
     require(type(spec["schema_version"]) is int and spec["schema_version"] == 1, "Unsupported study schema")
@@ -149,15 +160,27 @@ def load_study(path):
 
 
 def study(path, store):
-    spec, template = load_study(path)
+    spec, template = load_study(path,store)
+    if spec.get('analysis')=='assessment':
+        from .assessment import run_assessment
+        return run_assessment(spec,template,store)
+    if spec.get('analysis')=='cases':
+        from .cases import run_cases
+        return run_cases(spec,template,store)
+    if spec.get('analysis')=='paired':
+        from .paired import run_paired
+        return run_paired(spec,template,store)
     identifier, directory = store.create("studies")
     result = {"schema_version": 1, "study_id": identifier, "status": "running", "spec": spec,
               "started_at": utc(), "runs": [], "comparisons": [], "growth": {}, "secondary_growth": {}, "error": None}
-    write_json(directory / "study.json", result)
+    from .lifecycle import StudyProgress,notify_record_created
     jobs = [(variant, value) for value in spec["axis"]["values"] for variant in spec["variants"]]
+    progress=StudyProgress(result,directory,[template],len(jobs))
+    write_json(directory / "study.json", result)
     random.Random(spec["seed"]).shuffle(jobs)
     results = {}
     try:
+        notify_record_created('study',identifier)
         for index, (variant, scale) in enumerate(jobs):
             request = copy.deepcopy(template)
             request["name"] = spec["name"] + "/" + variant["id"] + "/" + str(scale)
@@ -170,7 +193,8 @@ def study(path, store):
             request["correctness"]["argv"] = [s.replace("{candidate}", variant["executable"]) for s in request["correctness"]["argv"]]
             config = directory / ("request-%03d.json" % index)
             write_json(config, request)
-            measured = run(load_request(config), store)
+            with progress.delegate('run',dict(variant=variant['id'],scale=scale,index=index)):
+                measured = run(load_request(config), store)
             result["runs"].append({"variant": variant["id"], "scale": scale, "run_id": measured["run_id"], "status": measured["status"]})
             write_json(directory / "study.json", result)
             if measured["status"] != "completed":
@@ -203,12 +227,17 @@ def study(path, store):
                 result["comparisons"].append({"scale": scale, "baseline_variant": first, "candidate_variant": variant["id"], **c})
         result["status"] = "completed"
     except LabError as error:
-        result["status"] = "failed"
+        result["status"] = "cancelled" if error.category=='cancelled' else "failed"
         result["error"] = error.as_dict()
     except KeyboardInterrupt:
         result["status"] = "cancelled"
         result["error"] = LabError("cancelled", "Study interrupted").as_dict()
+    except OSError as error:
+        result['status']='failed';result['error']=LabError('storage_failed',str(error)).as_dict()
+    except Exception as error:
+        result['status']='failed';result['error']=LabError('internal_error',str(error)).as_dict();raise
     finally:
+        progress.terminal()
         result["ended_at"] = utc()
         write_json(directory / "study.json", result)
     return result

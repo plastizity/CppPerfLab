@@ -1,0 +1,418 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cppperflab:run-status:1",
+  "title": "Run liveness, progress and candidate view v1",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^\\d{8}T\\d{6}-[0-9a-f]{12}$"
+    },
+    "run_status": {
+      "type": "string"
+    },
+    "source_error": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "error": {
+      "type": "null"
+    },
+    "name": {
+      "type": "string"
+    },
+    "started_at": {
+      "type": "string"
+    },
+    "ended_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "observed_at": {
+      "type": "string"
+    },
+    "observed_state": {
+      "enum": [
+        "terminal",
+        "running_confirmed",
+        "owner_exited",
+        "unverified"
+      ]
+    },
+    "owner": {
+      "$ref": "#/$defs/processObservation"
+    },
+    "active_process": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "progress": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "workflow_eta": {
+      "$ref": "#/$defs/workflowEta"
+    },
+    "build": {
+      "type": "object"
+    },
+    "current_artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artifactStatus"
+      }
+    },
+    "artifacts_verified": {
+      "type": "boolean"
+    },
+    "candidate": {
+      "$ref": "#/$defs/candidate"
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "artifact_verification": {
+      "type": "object",
+      "properties": {
+        "evidence_state": {
+          "enum": [
+            "Measured",
+            "Invalid",
+            "Missing",
+            "Unsupported"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence_state",
+        "reason"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "run_id",
+    "run_status",
+    "source_error",
+    "error",
+    "name",
+    "started_at",
+    "ended_at",
+    "observed_at",
+    "observed_state",
+    "owner",
+    "active_process",
+    "progress",
+    "workflow_eta",
+    "build",
+    "current_artifacts",
+    "artifacts_verified",
+    "candidate",
+    "limitations",
+    "artifact_verification"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "workflowEta": {
+      "type": "object",
+      "properties": {
+        "evidence_state": {
+          "enum": ["Missing", "Unsupported", "Estimated"]
+        },
+        "total_remaining_seconds": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "elapsed_seconds": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "historical_total_seconds": {
+          "type": ["object", "null"],
+          "properties": {
+            "median": {"type": "number", "minimum": 0},
+            "min": {"type": "number", "minimum": 0},
+            "max": {"type": "number", "minimum": 0}
+          },
+          "required": ["median", "min", "max"],
+          "additionalProperties": false
+        },
+        "source_run_ids": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "source_total_seconds": {
+          "type": "array",
+          "items": {"type": "number", "minimum": 0}
+        },
+        "n": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "remaining_observed_range_seconds": {
+          "type": ["array", "null"],
+          "items": {"type": ["number", "null"], "minimum": 0},
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "scope": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1},
+        "limitations": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        }
+      },
+      "required": [
+        "evidence_state", "total_remaining_seconds", "elapsed_seconds",
+        "historical_total_seconds", "source_run_ids", "source_total_seconds",
+        "n", "remaining_observed_range_seconds", "scope", "reason", "limitations"
+      ],
+      "additionalProperties": false
+    },
+    "identity": {
+      "type": "object",
+      "properties": {
+        "pid": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "start_ticks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "boot_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pid_namespace": {
+          "type": "string",
+          "minLength": 1
+        },
+        "process_state": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence_state": {
+          "enum": [
+            "Measured",
+            "Unsupported",
+            "Missing"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pid",
+        "evidence_state"
+      ],
+      "additionalProperties": true
+    },
+    "processObservation": {
+      "type": "object",
+      "properties": {
+        "alive": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "state": {
+          "type": "string"
+        },
+        "evidence_state": {
+          "enum": [
+            "Measured",
+            "Unsupported",
+            "Missing"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "process_state": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "alive",
+        "state",
+        "evidence_state"
+      ],
+      "additionalProperties": true
+    },
+    "artifactStatus": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "recorded_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "current_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "matches": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "evidence_state": {
+          "enum": [
+            "Measured",
+            "Invalid",
+            "Missing",
+            "Unsupported"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "recorded_sha256",
+        "matches",
+        "evidence_state"
+      ],
+      "additionalProperties": false
+    },
+    "noteEvent": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "previous_sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "action": {
+          "enum": [
+            "candidate_state",
+            "superseded_by"
+          ]
+        },
+        "value": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recorded_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "schema_version",
+        "run_id",
+        "revision",
+        "previous_sha256",
+        "action",
+        "value",
+        "reason",
+        "recorded_at",
+        "path",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "candidate": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "current_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "candidate_state": {
+          "enum": [
+            "undecided",
+            "retained",
+            "withdrawn"
+          ]
+        },
+        "superseded_by": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d{8}T\\d{6}-[0-9a-f]{12}$"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/noteEvent"
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "run_id",
+        "revision",
+        "current_sha256",
+        "candidate_state",
+        "superseded_by",
+        "events"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

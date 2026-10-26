@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cppperflab:phases:1",
+  "title": "CppPerfLab interval or summary phase report v1",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "scope": {
+          "type": "string",
+          "minLength": 1
+        },
+        "start_ns": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end_ns": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "parent_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "track_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "call_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "input_id": {
+                "type": "string"
+              },
+              "start_ns": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "end_ns": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "children_complete": {
+                "type": "boolean"
+              },
+              "result": {
+                "type": "string",
+                "minLength": 1
+              },
+              "correctness": {
+                "enum": [
+                  "passed",
+                  "failed",
+                  "not_checked"
+                ]
+              },
+              "work": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "unit": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "evidence_state": {
+                      "enum": [
+                        "Measured",
+                        "Estimated",
+                        "Modeled"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "value",
+                    "unit",
+                    "evidence_state"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "activity": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "const": "application_work"
+                      }
+                    },
+                    "required": [
+                      "kind"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "const": "application_wait"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "reason"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "parent_id",
+              "track_id",
+              "call_id",
+              "input_id",
+              "start_ns",
+              "end_ns",
+              "children_complete",
+              "result",
+              "correctness",
+              "work"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "clock": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "const": "CLOCK_MONOTONIC"
+            },
+            "origin_ns": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "boot_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "pid_namespace": {
+              "type": "string",
+              "minLength": 1
+            },
+            "time_namespace": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tracks": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "minLength": 1
+              },
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "pid": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "tid": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "required": [
+                  "pid",
+                  "tid"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "name",
+            "origin_ns",
+            "boot_id",
+            "pid_namespace",
+            "time_namespace",
+            "tracks"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "scope",
+        "start_ns",
+        "end_ns",
+        "stages"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "$ref": "phase-summary.schema.json"
+    }
+  ]
+}

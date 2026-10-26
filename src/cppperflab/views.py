@@ -13,7 +13,7 @@ from .performance_summary import summarize_performance
 
 
 SECTIONS = ("overview", "conditions", "summary", "metrics", "hotspots", "quality", "evidence",
-            "facts", "hypotheses", "growth", "comparisons", "observations", "call_edges", "allocation_sites")
+            "facts", "hypotheses", "growth", "comparisons", "observations", "call_edges", "allocation_sites", "phases", "phase_summaries", "runtime_identities", "sampling_profiles", "thread_timelines", "lifecycle", "candidate")
 
 
 def evidence_id(run_id, path):
@@ -25,13 +25,14 @@ def base_view(kind, identifier, status, error):
             "status": status, "error": error, "optimization_accepted": False,
             "overview": {}, "conditions": {}, "metrics": [], "hotspots": [],
             "quality": [], "evidence": [], "facts": [], "hypotheses": [],
-            "growth": [], "comparisons": [], "limitations": [], "summary": {}, "observations": [], "call_edges": [], "allocation_sites": []}
+            "growth": [], "comparisons": [], "limitations": [], "summary": {}, "observations": [], "call_edges": [], "allocation_sites": [], "phases": [], "phase_summaries": [], "runtime_identities": [], "sampling_profiles": [], "thread_timelines": [], "lifecycle":None, "candidate":None}
 
 
 def run_view(result):
     rid = result["run_id"]
     view = base_view("run", rid, result["status"], result["error"])
     request = result["request"]
+    view['lifecycle']=None if 'lifecycle' not in result else dict(progress=result['lifecycle'])
     view["overview"] = {"name": request["name"], "workload": request["workload"],
                         "correctness": result["correctness"], "tool": result.get("tool"),
                         "started_at": result["started_at"], "ended_at": result.get("ended_at"),
@@ -41,8 +42,12 @@ def run_view(result):
                           "environment": result["environment"], "identity": result.get("identity"),
                           "binary": result.get("binary"), "oracle": request["correctness"]}
     view["observations"] = run_observations(result)
-    for section in ('call_edges','allocation_sites'):
+    for section in ('call_edges','allocation_sites','phases','phase_summaries','runtime_identities','sampling_profiles','thread_timelines'):
         view[section]=[{**row,'evidence_id':evidence_id(rid,row['evidence'])} for row in result.get(section,[])]
+    for identity in view['runtime_identities']:
+        if identity['evidence_state']!='Measured' or identity['truncations'] or identity['acceptance']['status'] not in ('PASS','NOT_REQUESTED'):
+            view['quality'].append(dict(code='runtime_identity_partial',severity='review',message='Runtime identity coverage/expectation requires review; absent data is not an identity pass.',
+                evidence_state=identity['evidence_state'],acceptance=identity['acceptance'],evidence_id=identity['evidence_id']))
     for summary in result["summary"]:
         matching = [(s["index"], m) for s in result["samples"] for m in s["metrics"]
                     if all(m[k] == summary[k] for k in ("name", "unit", "method", "scope"))
@@ -102,13 +107,14 @@ def run_view(result):
     view["limitations"] = list(dict.fromkeys(existing["limitations"] + [
         "Hotspot rows belong to individual sampling repetitions; percentages are not summed across runs.",
         "Correctness passed means the declared command exited zero within its stated coverage."]))
+    if 'sampling_precheck' in result:view['conditions']['sampling_precheck']=result['sampling_precheck']
     view['summary'] = summarize_performance([result])
     return view
 
 
 def comparison_view(result):
-    from .comparison import normalized_cost
-    result = dict(result, normalized_cost=normalized_cost(result))
+    from .comparison import normalized_cost, decisions
+    result = dict(result, normalized_cost=normalized_cost(result), decisions=decisions(result))
     if not result["comparable"]:
         view = base_view("comparison", result["comparison_id"], "incomparable", result["error"])
         view["overview"] = {k: result[k] for k in ("baseline_id", "candidate_id", "metric", "comparable")}
@@ -125,6 +131,11 @@ def comparison_view(result):
         "baseline_median", "candidate_median", "speedup", "change_fraction",
         "bootstrap_95_percent_speedup", "coefficient_of_variation")}
     view["overview"]["acceptance"] = result.get("acceptance")
+    view["overview"]["decisions"] = result["decisions"]
+    if result["policy"].get("paired"):
+        view["overview"]["baseline_run_ids"]=result["baseline_run_ids"]
+        view["overview"]["candidate_run_ids"]=result["candidate_run_ids"]
+        view["overview"]["estimator"]=result["estimator"]
     view["overview"]["normalized_cost"] = result["normalized_cost"]
     view["conditions"] = {"policy": result["policy"], "treatment": result["treatment"],
                           "acceptance_policy":result.get("acceptance_policy")}
@@ -143,6 +154,33 @@ def comparison_view(result):
 def study_view(result):
     view = base_view("study", result["study_id"], result["status"], result["error"])
     spec = result["spec"]
+    if spec.get('analysis')=='assessment':
+        view['overview']={'name':spec['name'],'analysis':'assessment','collection_id':spec['collection_id'],
+                          'assessment':result['assessment'],'jobs':result['jobs'],'runs':result['runs']}
+        view['conditions']={'spec':spec,'execution_budget':result['execution_budget'],'identities':result['identities']}
+        view['comparisons']=result['comparisons']
+        view['facts']=[{'kind':'observation','profile_job':job} for job in result['jobs']]
+        view['limitations']=result['execution_budget']['limitations']+result['assessment'].get('limitations',[])
+        view['summary']=summarize_performance([],view['comparisons'])
+        return view
+    if spec.get('analysis')=='cases':
+        view['overview']={'name':spec['name'],'analysis':'cases','collection_id':spec['collection_id'],'cases':result['cases'],'runs':result['runs']}
+        view['conditions']={'spec':spec,'execution_budget':result['execution_budget'],'scheduled_jobs':result['scheduled_jobs']}
+        view['comparisons']=result['comparisons']
+        view['facts']=[{'kind':'observation','case':c} for c in result['cases']]
+        view['limitations']=result['execution_budget']['limitations']+['Capture observations are diagnostic provenance; they are not a production baseline for isolated replay.']
+        view['summary']=summarize_performance([],view['comparisons'])
+        return view
+    if spec.get('analysis')=='paired':
+        view['overview']={'name':spec['name'],'analysis':'paired','metric':spec['metric'],
+                          'runs':result['runs'],'blocks':result['blocks'],'resource_conditions':spec['resource_conditions']}
+        view['conditions']={'spec':spec,'execution_budget':result['execution_budget'],'resource_isolation_enforced':False}
+        view['comparisons']=result['comparisons']
+        view['facts']=[{'kind':'observation','block':b} for b in result['blocks']]
+        view['quality']=[{'code':'paired_design','severity':'review','message':'Serial paired/block design; resource isolation is not enforced and block independence is not proved.'}]
+        view['limitations']=result['execution_budget']['limitations']
+        view['summary']=summarize_performance([],view['comparisons'])
+        return view
     view["overview"] = {"name": spec["name"], "axis": spec["axis"], "metric": spec["metric"],
                         "runs": result["runs"], "variants": [v["id"] for v in spec["variants"]]}
     view["conditions"] = {"spec": spec, "started_at": result["started_at"],
@@ -190,18 +228,40 @@ def build_view(store, identifier, kind="run"):
         return summary_view(store, record)
     builders = {"run": run_view, "comparison": comparison_view, "study": study_view}
     view = builders[kind](record)
+    if kind=='run':
+        from .lifecycle import status_from_result
+        current=status_from_result(store,record)
+        view['candidate']=current['candidate']
+        view['lifecycle']={k:current[k] for k in ('progress','observed_at','observed_state','owner','active_process','workflow_eta')}
+    elif kind=='study':
+        from .study_status import study_status
+        view['lifecycle']=study_status(store,identifier)
     # Comparison/study evidence remains in the same run store. Failed runs can
     # legitimately have no inventory yet; their error and logs stay at their ID.
     runs = [record] if kind == 'run' else []
     if kind != "run":
-        run_ids = ([record["baseline_id"], record["candidate_id"]] if kind == "comparison"
+        run_ids = (record.get("baseline_run_ids",[record["baseline_id"]])+record.get("candidate_run_ids",[record["candidate_id"]]) if kind == "comparison"
                    else [r["run_id"] for r in record["runs"]])
         for rid in dict.fromkeys(run_ids):
             run = store.read(rid)
             runs.append(run)
+            if kind=='study' and record['spec'].get('analysis') in ('cases','assessment'):
+                source=run_view(run)
+                member=next(m for m in record['runs'] if m['run_id']==rid)
+                case_id=member['case_id'] if record['spec']['analysis']=='assessment' else member['sample_id']
+                for section in ('metrics','phases','phase_summaries','hotspots','quality','observations','call_edges','allocation_sites','facts','hypotheses','runtime_identities','sampling_profiles','thread_timelines'):
+                    view[section].extend({**v,'run_id':rid,'case_id':case_id,'variant':member['variant'],**({'profile_id':member['profile_id']} if 'profile_id' in member else {})} for v in source[section])
+            else:
+                view['phase_summaries'].extend({**row,'run_id':rid,'evidence_id':evidence_id(rid,row['evidence'])} for row in run.get('phase_summaries',[]))
+                view['runtime_identities'].extend({**row,'run_id':rid,'evidence_id':evidence_id(rid,row['evidence'])} for row in run.get('runtime_identities',[]))
+                view['sampling_profiles'].extend({**row,'run_id':rid,'evidence_id':evidence_id(rid,row['evidence'])} for row in run.get('sampling_profiles',[]))
+                view['thread_timelines'].extend({**row,'run_id':rid,'evidence_id':evidence_id(rid,row['evidence'])} for row in run.get('thread_timelines',[]))
             view["evidence"].extend({**item, "id": evidence_id(rid, item["path"]), "run_id": rid}
                                     for item in run.get("evidence", []))
+        from .run_notes import notes
+        view['conditions']['source_candidates']=[notes(store,r['run_id']) for r in runs]
     view['summary'] = summarize_performance(runs, view['comparisons'], view['growth'])
+    if kind=='study' and record['spec'].get('analysis')=='assessment':view['summary']['assessment']=record['assessment']
     return view
 
 
@@ -214,10 +274,12 @@ def summary_view(store, record):
                         'comparison_ids': record['comparison_ids']}
     view['conditions'] = {'grouping': 'Explicit record collection; no cross-tool sample aggregation.',
                           'runs': [{'run_id': r['run_id'], **run_view(r)['conditions']} for r in runs]}
+    from .run_notes import notes
+    view['conditions']['source_candidates']=[notes(store,r['run_id']) for r in runs]
     for run in runs:
         source = run_view(run)
         view['metrics'].extend({**group, 'run_id': run['run_id']} for group in source['metrics'])
-        for section in ('hotspots', 'quality', 'evidence', 'facts', 'hypotheses', 'observations', 'call_edges', 'allocation_sites'):
+        for section in ('hotspots', 'quality', 'evidence', 'facts', 'hypotheses', 'observations', 'call_edges', 'allocation_sites', 'phases', 'phase_summaries', 'runtime_identities', 'sampling_profiles', 'thread_timelines'):
             view[section].extend({**item, 'run_id': run['run_id']} for item in source[section])
         view['limitations'].extend(source['limitations'])
     view['comparisons'] = comparisons
@@ -233,9 +295,9 @@ def create_summary(store, run_ids, comparison_ids):
     comparison_ids = list(dict.fromkeys(comparison_ids))
     comparisons = [store.read(cid, 'comparison') for cid in comparison_ids]
     for comparison in comparisons:
-        for key in ('baseline_id', 'candidate_id'):
-            if comparison[key] not in run_ids:
-                run_ids.append(comparison[key])
+        sources=comparison.get('baseline_run_ids',[comparison['baseline_id']])+comparison.get('candidate_run_ids',[comparison['candidate_id']])
+        for rid in sources:
+            if rid not in run_ids:run_ids.append(rid)
     runs = [store.read(rid) for rid in run_ids]
     if any(r['status'] == 'running' for r in runs):
         raise LabError('invalid_request', 'Summary requires finished source runs')
@@ -250,15 +312,19 @@ def create_summary(store, run_ids, comparison_ids):
     return summary_view(store, record)
 
 
-def query_view(view, section="overview", *, metric=None, symbol=None, offset=0, limit=20):
+def query_view(view, section="overview", *, metric=None, symbol=None, offset=0, limit=20, input_id=None, result_class=None):
     if section not in SECTIONS or offset < 0 or not 1 <= limit <= 200:
         raise LabError("invalid_request", "Invalid analysis section or pagination (limit 1..200)")
     if metric is not None and section not in ("metrics", "growth", "comparisons", "observations", "call_edges", "allocation_sites"):
         raise LabError("invalid_request", "--metric requires metrics, growth, comparisons or observations section")
     if symbol is not None and section not in ("hotspots","call_edges","allocation_sites"):
         raise LabError("invalid_request", "--symbol requires hotspots, call_edges or allocation_sites section")
+    if (input_id is not None or result_class is not None) and section!="phases":
+        raise LabError("invalid_request","--input-id/--result require the phases section")
     data = view[section]
     if isinstance(data, list):
+        if input_id is not None:data=[r for r in data if r["input_id"]==input_id]
+        if result_class is not None:data=[r for r in data if r["result"]==result_class]
         if metric is not None:
             if section == "metrics":
                 data = [r for r in data if r["summary"]["name"] == metric]

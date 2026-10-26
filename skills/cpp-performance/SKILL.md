@@ -36,6 +36,7 @@ perflab tools list --json
 perflab schema request --json
 perflab metrics --domain D01 --json
 perflab metrics --metric cpu.ipc --json
+perflab budget --config workloads/locality-baseline.json --json
 perflab plan --config workloads/locality-baseline.json --json
 ```
 
@@ -85,6 +86,45 @@ result; increase workload duration/repeats or reduce interference before conclud
 For scientific pipeline stage counters or single-machine strong scaling, read
 [scientific experiments](references/scientific.md). These reuse Adapter/Study;
 solver-specific evidence and validation use the separate solver reference above.
+
+For ordinary-program phase logs, lightweight scopes, execution budgets and separate
+acceptance/improvement conclusions, read
+[production phase evidence](references/production-phases.md).
+
+To import an existing project's text log using a deterministic format template or
+field-keyword mapping, read [phase log mapping](references/phase-mapping.md).
+
+For preregistered serial AB/BA or ABBA comparisons, read
+[paired studies](references/paired.md); ordinary compare remains unpaired.
+
+For complete expensive/failed sample capture, file-driven C++ function/class
+adapters and case matrices, read [file cases and replay](references/file-cases.md).
+This path reuses existing metrics and run/compare APIs; serialized inputs and
+independent validation remain consumer-defined.
+
+For one preregistered workflow joining local/full-process timing, actual work
+and resource gates, read [joint assessment](references/joint-assessment.md).
+It verifies declared case/variant identity across profiles and keeps joint
+acceptance separate from end-to-end acceleration evidence.
+
+For actual executable/loaded-object identity, copied binaries and RPATH/dlopen
+questions, read [runtime identity](references/runtime-identity.md). It distinguishes
+declared file fingerprints from incomplete runtime observations and explicit gates.
+
+For sampled on-CPU attribution by recorded phase/call/input and static sampling
+readiness, read [CPU sampling interpretation](references/sampling.md). It covers
+clock correlation, unresolved samples, period denominators and stack limitations.
+
+For per-thread application work/wait timelines, read
+[thread activity evidence](references/thread-activity.md). These are application
+wall annotations and do not establish OS running/off-CPU time or wait cause.
+
+For live run state, opt-in progress, build identity and candidate disposition,
+read [run status and candidate history](references/run-status.md). Process liveness
+is identity checked; reported stage ETA is limited to observed same-run measurement
+pipelines. Separate whole-run ETA requires at least two completed matching workflow
+histories and is explicitly Estimated; missing history or expired forecasts provide
+no remaining-time value. Neither ETA substitutes for target performance metrics.
 
 ## Algorithm-scale and variant path
 

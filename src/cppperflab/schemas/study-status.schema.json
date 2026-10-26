@@ -1,0 +1,441 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cppperflab:study-status:1",
+  "title": "CppPerfLab Study lifecycle and child status view v1",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "record_kind": {
+      "const": "study"
+    },
+    "study_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "study_status": {
+      "type": "string"
+    },
+    "source_error": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "error": {
+      "type": "null"
+    },
+    "name": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "started_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "ended_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "observed_at": {
+      "type": "string"
+    },
+    "owner": {
+      "$ref": "#/$defs/processObservation"
+    },
+    "observed_state": {
+      "enum": [
+        "terminal",
+        "running_confirmed",
+        "owner_exited",
+        "unverified"
+      ]
+    },
+    "progress": {
+      "$ref": "#/$defs/progress"
+    },
+    "active_path": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/activePathEntry"
+      }
+    },
+    "studies": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/studyChildStatus"
+      }
+    },
+    "runs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/runChildStatus"
+      }
+    },
+    "eta": {
+      "$ref": "#/$defs/missingEta"
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "record_kind",
+    "study_id",
+    "study_status",
+    "source_error",
+    "error",
+    "observed_at",
+    "owner",
+    "observed_state",
+    "progress",
+    "active_path",
+    "studies",
+    "runs",
+    "eta",
+    "limitations"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "progress": {
+      "type": "object",
+      "properties": {
+        "planned_runs": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "created_runs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "terminal_runs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "completed_runs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed_runs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cancelled_runs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "timeout_runs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "running_records": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "normalized_samples": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "confirmed_running_runs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "owner_exited_records": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unverified_running_records": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "planned_runs",
+        "created_runs",
+        "terminal_runs",
+        "completed_runs",
+        "failed_runs",
+        "cancelled_runs",
+        "timeout_runs",
+        "running_records",
+        "normalized_samples",
+        "confirmed_running_runs",
+        "owner_exited_records",
+        "unverified_running_records"
+      ],
+      "additionalProperties": false
+    },
+    "studyChildStatus": {
+      "type": "object",
+      "properties": {
+        "study_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parent_study_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "context_path": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "study_status": {
+          "type": "string"
+        },
+        "source_error": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "observed_state": {
+          "enum": [
+            "terminal",
+            "running_confirmed",
+            "owner_exited",
+            "unverified"
+          ]
+        },
+        "owner": {
+          "$ref": "#/$defs/processObservation"
+        }
+      },
+      "required": [
+        "study_id",
+        "parent_study_id",
+        "context_path",
+        "study_status",
+        "source_error",
+        "observed_state",
+        "owner"
+      ],
+      "additionalProperties": false
+    },
+    "runChildStatus": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "run_status": {
+          "type": "string"
+        },
+        "source_error": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "error": {
+          "type": "null"
+        },
+        "name": {
+          "type": "string"
+        },
+        "started_at": {
+          "type": "string"
+        },
+        "ended_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "observed_at": {
+          "type": "string"
+        },
+        "observed_state": {
+          "enum": [
+            "terminal",
+            "running_confirmed",
+            "owner_exited",
+            "unverified"
+          ]
+        },
+        "owner": {
+          "$ref": "#/$defs/processObservation"
+        },
+        "active_process": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "progress": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "build": {
+          "type": "object"
+        },
+        "current_artifacts": {
+          "type": "array"
+        },
+        "artifacts_verified": {
+          "type": "boolean"
+        },
+        "candidate": {
+          "type": "object"
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "artifact_verification": {
+          "type": "object"
+        },
+        "parent_study_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "context_path": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "normalized_samples": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "schema_version",
+        "run_id",
+        "run_status",
+        "source_error",
+        "error",
+        "name",
+        "started_at",
+        "ended_at",
+        "observed_at",
+        "observed_state",
+        "owner",
+        "active_process",
+        "progress",
+        "build",
+        "current_artifacts",
+        "artifacts_verified",
+        "candidate",
+        "limitations",
+        "artifact_verification",
+        "parent_study_id",
+        "context_path",
+        "normalized_samples"
+      ],
+      "additionalProperties": false
+    },
+    "activePathEntry": {
+      "type": "object",
+      "properties": {
+        "record_kind": {
+          "enum": [
+            "study",
+            "run"
+          ]
+        },
+        "record_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "context": {
+          "type": "object"
+        },
+        "status": {
+          "type": "string"
+        },
+        "observed_state": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "record_kind",
+        "record_id",
+        "context",
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "missingEta": {
+      "type": "object",
+      "properties": {
+        "evidence_state": {
+          "const": "Missing"
+        },
+        "total_remaining_seconds": {
+          "type": "null"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence_state",
+        "total_remaining_seconds",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "processObservation": {
+      "type": "object",
+      "properties": {
+        "alive": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "state": {
+          "type": "string"
+        },
+        "evidence_state": {
+          "enum": [
+            "Measured",
+            "Unsupported",
+            "Missing"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "process_state": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "alive",
+        "state",
+        "evidence_state"
+      ],
+      "additionalProperties": true
+    }
+  }
+}

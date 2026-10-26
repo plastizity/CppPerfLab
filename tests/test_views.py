@@ -68,6 +68,24 @@ class SnapshotParser(HTMLParser):
 
 
 class ViewTests(unittest.TestCase):
+    def test_candidate_withdrawal_is_visible_in_run_comparison_and_summary_without_changing_evidence(self):
+        from cppperflab.run_notes import annotate
+        from cppperflab.views import create_summary
+        with tempfile.TemporaryDirectory() as temp:
+            store,_=self.setup_run(temp)
+            self.setup_run(temp,CANDIDATE)
+            original=sha256(store.record_path(BASELINE))
+            annotate(store,BASELINE,action='candidate_state',value='withdrawn',reason='operator decision',expected_revision=0)
+            self.assertEqual(build_view(store,BASELINE)['candidate']['candidate_state'],'withdrawn')
+            result=compare(store.read(BASELINE),store.read(CANDIDATE))
+            cid,folder=store.create('comparisons');result['comparison_id']=cid
+            write_json(folder/'comparison.json',result)
+            comparison=build_view(store,cid,'comparison')
+            self.assertEqual(comparison['conditions']['source_candidates'][0]['candidate_state'],'withdrawn')
+            summary=create_summary(store,[BASELINE,CANDIDATE],[])
+            self.assertEqual(summary['conditions']['source_candidates'][0]['candidate_state'],'withdrawn')
+            self.assertEqual(sha256(store.record_path(BASELINE)),original)
+
     def setup_run(self, temp, rid=BASELINE, values=None):
         store = Store(Path(temp)/'store')
         directory = store.record_path(rid).parent

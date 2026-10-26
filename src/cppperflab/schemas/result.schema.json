@@ -24,6 +24,74 @@
       "type": "string",
       "minLength": 1
     },
+    "workflow_cost": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "method": {
+          "const": "monotonic-run-lifetime"
+        },
+        "scope": {
+          "type": "string",
+          "minLength": 1
+        },
+        "started_monotonic_ns": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "clock": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "const": "CLOCK_MONOTONIC"
+            },
+            "boot_id": {
+              "type": ["string", "null"],
+              "minLength": 1
+            },
+            "time_namespace": {
+              "type": ["string", "null"],
+              "minLength": 1
+            },
+            "context_reason": {
+              "type": "string"
+            }
+          },
+          "required": ["name", "boot_id", "time_namespace"],
+          "additionalProperties": false
+        },
+        "owner": {
+          "$ref": "#/definitions/identity"
+        },
+        "cost_key": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "implementation_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "elapsed_seconds": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "evidence_state": {
+          "enum": ["Measured", "Invalid"]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "schema_version", "method", "scope", "started_monotonic_ns",
+        "clock", "cost_key", "implementation_sha256", "elapsed_seconds",
+        "evidence_state"
+      ],
+      "additionalProperties": false
+    },
     "request": {
       "type": "object",
       "properties": {
@@ -49,6 +117,13 @@
               "type": "array",
               "items": {
                 "type": "string"
+              }
+            },
+            "expected_hashes": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
               }
             }
           },
@@ -139,6 +214,10 @@
               "type": "number",
               "exclusiveMinimum": 0
             },
+            "progress": {
+              "type": "boolean",
+              "description": "Opt-in lifecycle writes. Actual process metadata writes may overlap target runtime; plan overhead as high."
+            },
             "cpu_affinity": {
               "type": "array",
               "items": {
@@ -164,6 +243,93 @@
               },
               "required": [],
               "additionalProperties": false
+            },
+            "phase_report": {
+              "type": "string",
+              "pattern": "^[^/\\\\\\u0000]+\\.phases\\.json$"
+            },
+            "runtime_identity": {
+              "type": "object",
+              "properties": {
+                "stages": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": {
+                    "enum": [
+                      "preflight",
+                      "measurement"
+                    ]
+                  }
+                },
+                "interval_ms": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "max_snapshots": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "max_processes": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "required_objects": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "basename": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "path": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "sha256": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      }
+                    },
+                    "required": [
+                      "basename",
+                      "path",
+                      "sha256"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "stages",
+                "interval_ms",
+                "max_snapshots",
+                "max_processes"
+              ],
+              "additionalProperties": false
+            },
+            "phase_import": {
+              "type": "object",
+              "properties": {
+                "source": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "mapping": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "mapping_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "source",
+                "mapping"
+              ],
+              "additionalProperties": false
             }
           },
           "required": [
@@ -188,6 +354,54 @@
             "description": {
               "type": "string",
               "minLength": 1
+            },
+            "sample_validation": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "argv",
+                "report",
+                "residual_norm",
+                "max_residual",
+                "max_absolute_error",
+                "max_relative_error",
+                "max_iterations"
+              ],
+              "properties": {
+                "argv": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "report": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "residual_norm": {
+                  "enum": [
+                    "l2_absolute",
+                    "l2_relative"
+                  ]
+                },
+                "max_iterations": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "max_residual": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "max_absolute_error": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "max_relative_error": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              }
             }
           },
           "required": [
@@ -401,6 +615,75 @@
       "items": {
         "type": "object"
       }
+    },
+    "phases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "execution_stage": {
+            "enum": [
+              "preflight",
+              "measurement"
+            ]
+          },
+          "sample": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "runtime_identities": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "sampling_profiles": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "sampling_precheck": {
+      "type": "object"
+    },
+    "phase_clocks": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "lifecycle": {
+      "$ref": "#/definitions/lifecycle"
+    },
+    "thread_timelines": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "description": "Per-launch application activity summaries; detailed source intervals are loaded through timeline queries"
+    },
+    "phase_summaries": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "phase_imports": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
     }
   },
   "required": [
@@ -417,5 +700,97 @@
     "error",
     "evidence_directory"
   ],
-  "additionalProperties": true
+  "additionalProperties": true,
+  "definitions": {
+    "identity": {
+      "type": "object",
+      "properties": {
+        "pid": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "start_ticks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "boot_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pid_namespace": {
+          "type": "string",
+          "minLength": 1
+        },
+        "process_state": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence_state": {
+          "enum": [
+            "Measured",
+            "Unsupported",
+            "Missing"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pid",
+        "evidence_state"
+      ],
+      "additionalProperties": true
+    },
+    "lifecycle": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "owner": {
+          "$ref": "#/definitions/identity"
+        },
+        "stage": {
+          "type": "string",
+          "minLength": 1
+        },
+        "updated_at": {
+          "type": "string",
+          "minLength": 1
+        },
+        "active_process": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "launches": {
+          "type": "object"
+        },
+        "measurement_groups": {
+          "type": "object"
+        },
+        "normalized_samples": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "eta": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "schema_version",
+        "owner",
+        "stage",
+        "updated_at",
+        "active_process",
+        "launches",
+        "measurement_groups",
+        "normalized_samples",
+        "eta"
+      ],
+      "additionalProperties": false
+    }
+  }
 }

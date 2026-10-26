@@ -10,7 +10,7 @@ from .protocol import metric
 DIMENSIONS = {
     'work': {'title': '计算工作量', 'metrics': [
         'cpu.instructions', 'algorithm.operations', 'algorithm.evaluations',
-        'algorithm.iterations', 'algorithm.elements', 'callgrind.instructions', 'kernel.useful_flops']},
+        'algorithm.iterations', 'algorithm.elements', 'solver.iterations', 'phase.work', 'phase.calls', 'callgrind.instructions', 'kernel.useful_flops']},
     'resources': {'title': '内存与资源', 'metrics': [
         'memory.heap_peak_observed', 'memory.rss_peak', 'memory.allocations',
         'memory.allocated_bytes', 'memory.reads', 'memory.writes', 'memory.copied_bytes',
@@ -24,7 +24,7 @@ DIMENSIONS = {
         'simd.lane_utilization', 'simd.operations_per_instruction',
         'compiler.vectorized_loops']},
     'timing': {'title': '耗时', 'metrics': [
-        'time.wall', 'time.cpu', 'time.iteration.wall', 'time.iteration.cpu', 'pipeline.stage_wall', 'solver.setup_time', 'solver.solve_time', 'solver.total_time']},
+        'time.wall', 'time.cpu', 'time.iteration.wall', 'time.iteration.cpu', 'pipeline.stage_wall', 'solver.setup_time', 'solver.solve_time', 'solver.total_time','phase.inclusive_time','phase.self_time','phase.covered_wall','phase.uncovered_wall','phase.root_wall']},
     'correctness': {'title': '正确性与数值质量', 'metrics': [
         'numerical.absolute_error', 'numerical.relative_error', 'numerical.residual']},
 }
@@ -38,12 +38,13 @@ def dimension(metric_name):
 
 
 def comparison_finding(result):
-    from .comparison import normalized_cost
+    from .comparison import normalized_cost, decisions
     key = dimension(result['metric'])
     finding = {'kind': 'statistical_inference', 'dimension': key, 'metric': result['metric'],
                'baseline_id': result['baseline_id'], 'candidate_id': result['candidate_id'],
                'classification': result.get('classification'), 'comparable': result['comparable'],
-               'normalized_cost': normalized_cost(result), 'acceptance':result.get('acceptance')}
+               'normalized_cost': normalized_cost(result), 'decisions':decisions(result), 'acceptance':result.get('acceptance')}
+    finding.update({k:result[k] for k in ('comparison_id','metric_scope','case_id','profile_id','assessment_role','assessment_gate') if k in result})
     if not result['comparable']:
         finding.update(outcome='incomparable', message='测量条件或指标语义不兼容，未形成变化结论。',
                        error=result['error'])

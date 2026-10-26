@@ -1,0 +1,296 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cppperflab:runtime-identity:1",
+  "title": "Linux runtime identity observations v1",
+  "$defs": {
+    "config": {
+      "type": "object",
+      "properties": {
+        "stages": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "preflight",
+              "measurement"
+            ]
+          }
+        },
+        "interval_ms": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_snapshots": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_processes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "required_objects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "basename": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            },
+            "required": [
+              "basename",
+              "path",
+              "sha256"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "stages",
+        "interval_ms",
+        "max_snapshots",
+        "max_processes"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "evidence_state": {
+      "enum": [
+        "Measured",
+        "Estimated",
+        "Modeled",
+        "Unsupported",
+        "Missing",
+        "Invalid"
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target_executable": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target_signature": {
+      "type": "object"
+    },
+    "root_pid": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "direct_target_launch": {
+      "type": "boolean"
+    },
+    "config": {
+      "$ref": "#/$defs/config"
+    },
+    "snapshots": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "actual_executables": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "objects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "pid": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "start_ticks": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "evidence_state": {
+            "const": "Measured"
+          },
+          "hash": {
+            "type": "object",
+            "properties": {
+              "evidence_state": {
+                "enum": [
+                  "Measured",
+                  "Estimated",
+                  "Modeled",
+                  "Unsupported",
+                  "Missing",
+                  "Invalid"
+                ]
+              },
+              "sha256": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              },
+              "method": {
+                "type": "string",
+                "minLength": 1
+              },
+              "collected_at": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "evidence_state",
+              "sha256"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "path",
+          "pid",
+          "start_ticks",
+          "evidence_state",
+          "hash",
+          "first_snapshot",
+          "last_snapshot",
+          "sources",
+          "device",
+          "inode"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "target_snapshots": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "complete_loader_history": {
+      "const": false
+    },
+    "truncations": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "max_snapshots",
+          "max_processes"
+        ]
+      }
+    },
+    "collection_elapsed_seconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "observer_work_wall_seconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "post_execution_hashing_wall_seconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "acceptance": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "INCONCLUSIVE",
+            "UNSUPPORTED",
+            "NOT_REQUESTED"
+          ]
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "status",
+        "rules"
+      ],
+      "additionalProperties": false
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "execution_stage": {
+      "enum": [
+        "preflight",
+        "measurement"
+      ]
+    },
+    "measurement_group": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "evidence": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "schema_version",
+    "evidence_state",
+    "target_executable",
+    "root_pid",
+    "config",
+    "snapshots",
+    "actual_executables",
+    "objects",
+    "errors",
+    "target_snapshots",
+    "complete_loader_history",
+    "truncations",
+    "acceptance",
+    "limitations"
+  ],
+  "additionalProperties": false
+}

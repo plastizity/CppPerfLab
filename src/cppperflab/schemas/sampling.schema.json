@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cppperflab:sampling:1",
+  "title": "CPU sample trace, query and precheck protocol v1",
+  "$defs": {
+    "evidenceState": {"enum": ["Measured", "Estimated", "Modeled", "Unsupported", "Missing", "Invalid"]},
+    "decision": {"enum": ["PASS", "FAIL", "INCONCLUSIVE", "UNSUPPORTED"]},
+    "fraction": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "options": {
+      "type": "object",
+      "properties": {
+        "frequency": {"type": "integer", "minimum": 1, "maximum": 1000},
+        "call_graph": {"enum": ["dwarf", "fp", "none"]},
+        "symbolizer": {"enum": ["perf", "addr2line"]},
+        "sample_trace": {"type": "boolean"},
+        "precheck": {"$ref": "#/$defs/precheckPolicy"}
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {"required": ["symbolizer"]},
+          "then": {"required": ["sample_trace"], "properties": {"sample_trace": {"const": true}}}
+        },
+        {
+          "if": {"required": ["precheck"]},
+          "then": {"required": ["sample_trace"], "properties": {"sample_trace": {"const": true}}}
+        }
+      ]
+    },
+    "precheckPolicy": {
+      "type": "object",
+      "properties": {
+        "min_samples": {"type": "integer", "minimum": 1},
+        "min_resolved_self_fraction": {"type": "number", "minimum": 0, "maximum": 1},
+        "min_resolved_stack_fraction": {"type": "number", "minimum": 0, "maximum": 1},
+        "require_phase_clock": {"type": "boolean"}
+      },
+      "required": ["min_samples", "min_resolved_self_fraction", "min_resolved_stack_fraction", "require_phase_clock"],
+      "additionalProperties": false
+    },
+    "phaseClock": {
+      "type": "object",
+      "properties": {
+        "name": {"const": "CLOCK_MONOTONIC"},
+        "origin_ns": {"type": "integer", "minimum": 0},
+        "boot_id": {"type": "string", "minLength": 1},
+        "pid_namespace": {"type": "string", "minLength": 1},
+        "time_namespace": {"type": "string", "minLength": 1},
+        "tracks": {
+          "type": "object",
+          "propertyNames": {"type": "string", "minLength": 1},
+          "additionalProperties": {"$ref": "#/$defs/actor"}
+        }
+      },
+      "required": ["name", "origin_ns", "boot_id", "pid_namespace", "time_namespace", "tracks"],
+      "additionalProperties": false
+    },
+    "actor": {
+      "type": "object", "properties": {"pid": {"type": "integer", "minimum": 1}, "tid": {"type": "integer", "minimum": 1}},
+      "required": ["pid", "tid"], "additionalProperties": false
+    },
+    "samplingClock": {
+      "type": "object",
+      "properties": {
+        "name": {"const": "CLOCK_MONOTONIC"},
+        "boot_id": {"type": "string", "minLength": 1},
+        "pid_namespace": {"type": "string", "minLength": 1},
+        "time_namespace": {"type": "string", "minLength": 1},
+        "monotonic_offset_ns": {"const": 0},
+        "before_launch_monotonic_ns": {"type": "integer", "minimum": 0},
+        "after_capture_monotonic_ns": {"type": "integer", "minimum": 0},
+        "verified_attributes": {"type": "string", "minLength": 1}
+      },
+      "required": ["name", "boot_id", "pid_namespace", "time_namespace", "monotonic_offset_ns", "before_launch_monotonic_ns", "after_capture_monotonic_ns", "verified_attributes"],
+      "additionalProperties": false
+    },
+    "frame": {
+      "type": "object",
+      "properties": {
+        "ip": {"type": "integer", "minimum": 0}, "native_symbol": {"type": "string"},
+        "dso": {"type": "string"}, "file_offset": {"type": ["integer", "null"], "minimum": 0},
+        "recorded_build_id": {"type": ["string", "null"]}, "symbol": {"type": "string"},
+        "resolved": {"type": "boolean"}, "attribution_state": {"$ref": "#/$defs/evidenceState"},
+        "symbol_source": {"enum": ["perf", "addr2line"]}, "reason": {"type": "string"},
+        "source_location": {"type": "string"}, "elf_address": {"type": "integer", "minimum": 0},
+        "symbol_evidence": {"type": "string", "minLength": 1}
+      },
+      "required": ["ip", "native_symbol", "dso", "file_offset", "recorded_build_id", "symbol", "resolved", "symbol_source", "attribution_state"],
+      "additionalProperties": false
+    },
+    "sample": {
+      "type": "object",
+      "properties": {
+        "index": {"type": "integer", "minimum": 0}, "pid": {"type": "integer", "minimum": 1},
+        "tid": {"type": "integer", "minimum": 1}, "time_ns": {"type": "integer", "minimum": 0},
+        "period": {"type": "integer", "minimum": 1}, "event": {"type": "string", "minLength": 1},
+        "evidence_state": {"const": "Measured"}, "frames": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/frame"}},
+        "native_line": {"type": "integer", "minimum": 1}
+      },
+      "required": ["index", "pid", "tid", "time_ns", "period", "event", "evidence_state", "frames"],
+      "additionalProperties": false
+    },
+    "quality": {
+      "type": "object",
+      "properties": {
+        "sample_count": {"type": "integer", "minimum": 0}, "total_period": {"type": "integer", "minimum": 0},
+        "resolved_self_fraction": {"$ref": "#/$defs/fraction"}, "unresolved_self_fraction": {"$ref": "#/$defs/fraction"},
+        "resolved_two_frame_fraction": {"$ref": "#/$defs/fraction"},
+        "lost_events": {"type": "integer", "minimum": 0}, "denominator": {"type": "string", "minLength": 1},
+        "complete_callchain_proven": {"const": false}
+      },
+      "required": ["sample_count", "total_period", "resolved_self_fraction", "unresolved_self_fraction", "resolved_two_frame_fraction", "lost_events", "denominator", "complete_callchain_proven"],
+      "additionalProperties": false
+    },
+    "profile": {
+      "type": "object",
+      "properties": {
+        "schema_version": {"const": 1}, "evidence_state": {"$ref": "#/$defs/evidenceState"},
+        "quality": {"$ref": "#/$defs/quality"}, "clock": {"$ref": "#/$defs/samplingClock"},
+        "samples_evidence": {"type": "string", "minLength": 1}, "native_evidence": {"type": "string", "minLength": 1},
+        "event": {"type": ["string", "null"]}, "images": {"type": "array", "items": {"type": "object"}},
+        "helpers": {"type": "object"}, "mapping_records": {"type": "integer", "minimum": 0},
+        "limitations": {"type": "array", "items": {"type": "string", "minLength": 1}}, "reason": {"type": "string", "minLength": 1}
+      },
+      "required": ["schema_version", "evidence_state", "quality", "clock", "samples_evidence", "native_evidence", "event", "images", "helpers", "limitations", "mapping_records"],
+      "additionalProperties": false
+    },
+    "precheckResult": {
+      "type": "object", "properties": {
+        "status": {"$ref": "#/$defs/decision"}, "checks": {"type": "object", "additionalProperties": {"$ref": "#/$defs/check"}},
+        "quality": {"$ref": "#/$defs/quality"}, "policy": {"$ref": "#/$defs/precheckPolicy"},
+        "phase_clock": {"type": ["object", "null"]}, "meaning": {"type": "string", "minLength": 1}
+      },
+      "required": ["status", "checks", "quality", "policy", "phase_clock", "meaning"], "additionalProperties": false
+    },
+    "check": {
+      "type": "object", "properties": {"status": {"$ref": "#/$defs/decision"}, "reason": {"type": "string"},
+        "observed": {"type": ["number", "null"]}, "threshold": {"type": "number", "minimum": 0, "maximum": 1}},
+      "required": ["status"], "additionalProperties": false
+    },
+    "selection": {
+      "type": "object", "properties": {
+        "phase_id": {"type": ["string", "null"]}, "phase_path": {"type": ["array", "null"], "items": {"type": "string"}},
+        "call_id": {"type": ["string", "null"]}, "input_id": {"type": ["string", "null"]},
+        "phase_mode": {"enum": ["inclusive", "self"]}, "pid": {"type": ["integer", "null"], "minimum": 1}, "tid": {"type": ["integer", "null"], "minimum": 1}
+      },
+      "required": ["phase_id", "phase_path", "call_id", "input_id", "phase_mode", "pid", "tid"], "additionalProperties": false
+    },
+    "profileQuery": {
+      "type": "object", "properties": {
+        "schema_version": {"const": 1}, "run_id": {"type": "string"}, "status": {"type": "string"},
+        "error": {}, "execution_stage": {"enum": ["preflight", "measurement"]},
+        "measurement_group": {"type": ["integer", "null"], "minimum": 0}, "selection": {"$ref": "#/$defs/selection"},
+        "selection_status": {"$ref": "#/$defs/decision"}, "evidence_state": {"$ref": "#/$defs/evidenceState"},
+        "hotspots": {"type": "array", "items": {"$ref": "#/$defs/hotspot"}}, "denominator": {"type": ["object", "null"]},
+        "selected_phase_ids": {"type": "array", "items": {"type": "string"}}, "quality": {"type": ["object", "null"]},
+        "limitations": {"type": "array", "items": {"type": "string"}}, "clock": {"type": ["object", "null"]},
+        "samples_evidence": {"type": "string"}, "hotspot_count": {"type": "integer", "minimum": 0},
+        "reason": {"type": "string"}, "source_error": {}
+      },
+      "required": ["schema_version", "run_id", "status", "error", "execution_stage", "measurement_group", "selection", "selection_status", "evidence_state", "hotspots", "denominator", "selected_phase_ids", "quality", "limitations"],
+      "additionalProperties": false
+    },
+    "hotspot": {
+      "type": "object", "properties": {
+        "symbol": {"type": "string"}, "dso": {"type": "string"}, "self_period": {"type": "integer", "minimum": 0},
+        "inclusive_period": {"type": "integer", "minimum": 0}, "self_percent": {"type": "number", "minimum": 0},
+        "inclusive_percent": {"type": "number", "minimum": 0}, "evidence": {"type": "string"}, "method": {"type": "string"},
+        "sample": {"type": ["integer", "null"], "minimum": 0}, "command": {"type": "string"}
+      },
+      "required": ["symbol", "dso", "self_period", "inclusive_period", "self_percent", "inclusive_percent", "evidence", "method", "sample", "command"],
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {"$ref": "#/$defs/profile"}, {"$ref": "#/$defs/precheckResult"}, {"$ref": "#/$defs/profileQuery"}
+  ]
+}

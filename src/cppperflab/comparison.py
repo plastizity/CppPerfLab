@@ -12,6 +12,16 @@ MIN_COMPARISON_SAMPLES = 7
 MAX_COMPARISON_CV = .10
 
 
+def combine_gates(states):
+    """Conjunction of existing explicit gates; missing evidence can never pass."""
+    if 'FAIL' in states:return 'FAIL'
+    if not states or 'INCONCLUSIVE' in states:return 'INCONCLUSIVE'
+    if 'UNSUPPORTED' in states:return 'UNSUPPORTED'
+    require(all(s=='PASS' for s in states),'Unknown acceptance state')
+    return 'PASS'
+
+
+
 def validate_policy(policy):
     fields(policy, ('schema_version','min_samples','max_cv','max_regression_fraction','min_speedup','direction'),
            ('schema_version','min_samples','max_cv','max_regression_fraction'), 'acceptance policy')
@@ -47,17 +57,53 @@ def acceptance(result, policy, direction):
             'benefit_interval':[lo,hi]}
 
 
-def compare(a, b, metric_name="time.wall", allow_command_change=False,
-            regression_fraction=0.05, policy=None, varying_parameter=None):
-    policy = validate_policy(policy if policy is not None else {"schema_version":1, "min_samples":MIN_COMPARISON_SAMPLES,
-                             "max_cv":MAX_COMPARISON_CV, "max_regression_fraction":regression_fraction})
-    direction = policy.get("direction", DEFINITIONS.get(metric_name, {}).get("expected_direction", "none"))
+def request_differences(a,b,allow_command_change=False,varying_parameter=None):
+    """Shared declared-condition checks, available before any target execution."""
+    differences=[]
+    def same(label,left,right):
+        if left!=right:differences.append({'condition':label,'baseline':left,'candidate':right})
+    same('workload.id',a['workload']['id'],b['workload']['id'])
+    parameters=[{k:v for k,v in r['workload']['parameters'].items() if k!=varying_parameter} for r in (a,b)]
+    same('workload.parameters',*parameters)
+    if varying_parameter is not None:
+        require(all(varying_parameter in r['workload']['parameters'] for r in (a,b)),'Declared varying parameter missing')
+    same('sample_validation_contract',a['correctness'].get('sample_validation'),b['correctness'].get('sample_validation'))
+    for key in ('cpu_affinity','options','warmups','limits','phase_report'):
+        same('measurement.'+key,a['measurement'].get(key),b['measurement'].get(key))
+    same('measurement.progress',a['measurement'].get('progress',False),b['measurement'].get('progress',False))
+    for key in ('environment','cwd'):same('target.'+key,a['target'].get(key),b['target'].get(key))
+    same('build.mode',a['target']['build']['mode'],b['target']['build']['mode'])
+    if not allow_command_change:same('target.arguments',a['target']['argv'][1:],b['target']['argv'][1:])
+    runtime=[r['measurement'].get('runtime_identity') for r in (a,b)]
+    same('measurement.runtime_identity_controls',*[dict({k:v for k,v in c.items() if k!='required_objects'},
+        required_object_selectors=sorted(r['basename'] for r in c.get('required_objects',[]))) if c is not None else None for c in runtime])
+    same('oracle.description',a['correctness']['description'],b['correctness']['description'])
+    return differences
+
+
+def validated_samples(a, b, metric_name="time.wall", allow_command_change=False,
+                      varying_parameter=None, metric_scope=None):
+    """One authoritative correctness, evidence and comparability boundary."""
+    require(metric_scope is None or isinstance(metric_scope,str) and bool(metric_scope),'metric_scope must be a nonempty exact scope')
     correctness = [r["correctness"]["status"] for r in (a,b)]
     if any(state != "passed" for state in correctness):
         state = "FAIL" if "failed" in correctness else ("UNSUPPORTED" if any(
             (r.get("error") or {}).get("category") in ("unavailable","permission_denied") for r in (a,b)) else "INCONCLUSIVE")
         raise LabError("incomparable", "Correctness must pass before performance scoring",
                        {"acceptance": {"status":state, "reason":"correctness gate"}, "correctness":correctness})
+    from .adapters import REGISTRY
+    for r in (a,b):
+        runtime=r['request']['measurement'].get('runtime_identity')
+        if runtime is None:continue
+        reports=r.get('runtime_identities',[])
+        for stage in runtime['stages']:
+            expected=1 if stage=='preflight' or REGISTRY[r['tool']['id']].batch else r['request']['measurement']['repetitions']
+            selected=[v for v in reports if v['execution_stage']==stage]
+            groups={v['measurement_group'] for v in selected}
+            expected_groups={None} if stage=='preflight' else set(range(expected))
+            if len(selected)!=expected or groups!=expected_groups or (runtime.get('required_objects') and any(v['acceptance']['status']!='PASS' for v in selected)):
+                raise LabError('incomparable','Requested runtime identity evidence or expectation gate missing/failed',
+                               {'acceptance':{'status':'INCONCLUSIVE','reason':'runtime identity evidence required'}})
     validation_contracts=[r['request']['correctness'].get('sample_validation') for r in (a,b)]
     if any(validation_contracts) or metric_name.startswith(('solver.','numerical.')):
         if not all(validation_contracts) or any(r['correctness'].get('sample_validation_status')!='passed' or
@@ -73,12 +119,7 @@ def compare(a, b, metric_name="time.wall", allow_command_change=False,
     same("candidate_completed", b["status"], "completed")
     if a["status"] != "completed" or b["status"] != "completed":
         raise LabError("incomparable", "Only completed experiments can be compared", {"differences": differences})
-    same('workload.id',a['request']['workload']['id'],b['request']['workload']['id'])
-    parameters=[{k:v for k,v in r['request']['workload']['parameters'].items() if k!=varying_parameter} for r in (a,b)]
-    same('workload.parameters',*parameters)
-    if varying_parameter is not None:
-        require(all(varying_parameter in r['request']['workload']['parameters'] for r in (a,b)), 'Declared varying parameter missing')
-    same('sample_validation_contract',*validation_contracts)
+    differences.extend(request_differences(a['request'],b['request'],allow_command_change,varying_parameter))
     if all(validation_contracts):
         validator_identities=[{p:digest for p,digest in r['identity']['artifacts'].items() if p in c['argv']}
                               for r,c in zip((a,b),validation_contracts)]
@@ -88,20 +129,13 @@ def compare(a, b, metric_name="time.wall", allow_command_change=False,
         same("tool." + key, a["tool"][key], b["tool"][key])
     for key in ("os", "kernel", "machine", "hostname", "cpu_model", "cpu_flags", "allowed_cpus", "governor"):
         same("environment." + key, a["environment"][key], b["environment"][key])
-    for key in ("cpu_affinity", "options", "warmups", "limits"):
-        same("measurement." + key, a["request"]["measurement"].get(key), b["request"]["measurement"].get(key))
-    for key in ("environment", "cwd"):
-        same("target." + key, a["request"]["target"].get(key), b["request"]["target"].get(key))
-    same("build.mode", a["request"]["target"]["build"]["mode"], b["request"]["target"]["build"]["mode"])
-    if not allow_command_change:
-        same("target.arguments", a["request"]["target"]["argv"][1:], b["request"]["target"]["argv"][1:])
-    same("correctness", a["correctness"]["status"], b["correctness"]["status"])
-    same("oracle.description", a["request"]["correctness"]["description"], b["request"]["correctness"]["description"])
     if metric_name not in DERIVATIONS:
         for r in (a,b):
-            if any(sum(m['name']==metric_name for m in sample['metrics'])!=1 for sample in r['samples']):
+            if any(sum(m['name']==metric_name and (metric_scope is None or m['scope']==metric_scope) for m in sample['metrics'])!=1 for sample in r['samples']):
                 differences.append({'condition':'missing_or_duplicate_metric_in_sample', 'run_id':r['run_id'], 'metric':metric_name})
-    collections = [metric_samples(r, metric_name) for r in (a, b)]
+    collections = [[m for m in metric_samples(r,metric_name) if metric_scope is None or m['scope']==metric_scope] for r in (a,b)]
+    if metric_name.startswith('phase.') and any(m.get('correctness_status')!='passed' for values in collections for m in values):
+        raise LabError('incomparable','Phase correctness must pass before local performance scoring',{'acceptance':{'status':'INCONCLUSIVE','reason':'phase correctness not checked or failed'}})
     states = [evidence_state(m) for values in collections for m in values]
     if any(state != "Measured" for state in states):
         verdict = "UNSUPPORTED" if "Unsupported" in states else "INCONCLUSIVE"
@@ -125,15 +159,42 @@ def compare(a, b, metric_name="time.wall", allow_command_change=False,
     av, bv = [[m["value"] for m in values] for values in collections]
     if any(type(x) not in (int,float) or not math.isfinite(x) or x <= 0 for values in (av,bv) for x in values):
         raise LabError("incomparable", "Ratio comparison requires positive finite samples")
+    return collections
+
+
+def compare(a, b, metric_name="time.wall", allow_command_change=False,
+            regression_fraction=0.05, policy=None, varying_parameter=None, metric_scope=None):
+    policy = validate_policy(policy if policy is not None else {"schema_version":1, "min_samples":MIN_COMPARISON_SAMPLES,
+                             "max_cv":MAX_COMPARISON_CV, "max_regression_fraction":regression_fraction})
+    collections=validated_samples(a,b,metric_name,allow_command_change,varying_parameter,metric_scope)
+    av,bv=[[m['value'] for m in values] for values in collections]
+    return summarize_comparison(a,b,metric_name,collections[0][0]['unit'],av,bv,policy,
+                                allow_command_change,regression_fraction,varying_parameter,metric_scope)
+
+
+def summarize_comparison(a,b,metric_name,unit,av,bv,policy,allow_command_change=False,
+                         regression_fraction=.05,varying_parameter=None,metric_scope=None,paired=False):
+    """Shared inference engine; paired inputs are validated block representatives."""
+    direction=policy.get('direction',DEFINITIONS.get(metric_name,{}).get('expected_direction','none'))
     am, bm = statistics.median(av), statistics.median(bv)
     rng = random.Random(1014)
-    reference_identity = a["run_id"] == b["run_id"]
-    ratios = [1.0] * 5000 if reference_identity else sorted(statistics.median(rng.choices(av, k=len(av))) /
-                    statistics.median(rng.choices(bv, k=len(bv))) for _ in range(5000))
+    reference_identity = not paired and a["run_id"] == b["run_id"]
+    if reference_identity:
+        ratios=[1.0]*5000
+    elif paired:
+        ratios=[]
+        for _ in range(5000):
+            indices=rng.choices(range(len(av)),k=len(av))
+            ratios.append(statistics.median([av[i] for i in indices])/statistics.median([bv[i] for i in indices]))
+        ratios.sort()
+    else:
+        ratios=sorted(statistics.median(rng.choices(av,k=len(av)))/statistics.median(rng.choices(bv,k=len(bv))) for _ in range(5000))
     ci = [ratios[125], ratios[4874]]
     cv = [statistics.stdev(v) / statistics.mean(v) if len(v) > 1 else None for v in (av, bv)]
     sufficient = min(len(av), len(bv)) >= policy["min_samples"]
-    stable = all(v is not None and v <= policy["max_cv"] for v in cv)
+    paired_ratios=[x/y for x,y in zip(av,bv)] if paired else []
+    paired_cv=statistics.stdev(paired_ratios)/statistics.mean(paired_ratios) if paired and len(av)>1 else None
+    stable = paired_cv is not None and paired_cv<=policy['max_cv'] if paired else all(v is not None and v <= policy["max_cv"] for v in cv)
     if not sufficient or not stable:
         classification = "inconclusive"
     elif ci[1] < 1 / (1 + regression_fraction):
@@ -143,22 +204,26 @@ def compare(a, b, metric_name="time.wall", allow_command_change=False,
     else:
         classification = "no_clear_change"
     result = {"schema_version": 1, "baseline_id": a["run_id"], "candidate_id": b["run_id"],
-            "comparable": True, "metric": metric_name, "unit": collections[0][0]["unit"],
+            "comparable": True, "metric": metric_name, "metric_scope":metric_scope, "unit": unit,
             "baseline_samples": av, "candidate_samples": bv, "baseline_median": am,
             "candidate_median": bm, "speedup": am / bm, "change_fraction": bm / am - 1,
             "bootstrap_95_percent_speedup": ci, "coefficient_of_variation": cv,
             "classification": classification, "sufficient_samples": sufficient, "stable_samples": stable,
             "policy": {"min_samples": policy["min_samples"], "max_cv": policy["max_cv"], "material_fraction": regression_fraction,
-                       "bootstrap_resamples": 0 if reference_identity else 5000, "seed": 1014, "paired": False,
+                       "bootstrap_resamples": 0 if reference_identity else 5000, "seed": 1014, "paired": paired,
+                       "stability_basis":"paired_block_ratios" if paired else "marginal_samples",
                        "reference_identity": reference_identity},
             "treatment": {"baseline_argv": a["request"]["target"]["argv"],
                           "candidate_argv": b["request"]["target"]["argv"],
                           "baseline_build": a["request"]["target"]["build"],
                           "candidate_build": b["request"]["target"]["build"],
+                          "runtime_identity_expectations": {v:r["request"]["measurement"].get("runtime_identity",{}).get("required_objects",[]) for v,r in (("baseline",a),("candidate",b))},
                           "command_change_acknowledged": allow_command_change, "varying_parameter":varying_parameter},
-            "limitations": ["Unpaired bootstrap is descriptive and cannot remove thermal/load/order drift.",
+            "limitations": ["Paired block bootstrap preserves within-block association; between-block dependence and drift remain possible." if paired else "Unpaired bootstrap is descriptive and cannot remove thermal/load/order drift.",
                             "An observed improvement is not automatic optimization acceptance; repeat interleaved A/B and review oracle coverage."]}
 
+    result['sample_unit']='block' if paired else 'measurement'
+    result['paired_ratio_cv']=paired_cv
     result['acceptance_policy'] = policy
     result['acceptance'] = acceptance(result,policy,direction)
     result['evidence_state'] = 'Estimated'
@@ -168,6 +233,7 @@ def compare(a, b, metric_name="time.wall", allow_command_change=False,
     result['runtime_reduction'] = 1-bm/am if metric_name.startswith('time.') else None
     result['regression_status'] = result['acceptance']['status']
     result['normalized_cost'] = normalized_cost(result)
+    result['decisions'] = decisions(result)
     return result
 
 
@@ -199,6 +265,39 @@ def normalized_cost(result):
                 interval_95_percent=[1/hi,1/lo] if direction=='lower' else [lo,hi],
                 evidence_state='Estimated')
     return cost
+
+
+def decisions(result):
+    """Separate validity, non-regression and improvement; reuse acceptance gates."""
+    valid=result['comparable']
+    correctness=result.get('correctness_status')
+    answer={'schema_version':1,
+            'correctness':{'status':'PASS' if correctness=='passed' else 'FAIL' if correctness=='failed' else 'INCONCLUSIVE',
+                           'reason':'Declared oracle coverage only; not proof of all outputs'},
+            'comparability':{'status':'PASS' if valid else 'INCONCLUSIVE','reason':'Recorded conditions and metric semantics match' if valid else 'Comparison rejected; see original error'},
+            'statistics':{'status':'INCONCLUSIVE','reason':'Valid sampled comparison required'},
+            'non_regression':{'status':'INCONCLUSIVE','reason':'Comparable measured evidence and declared direction required'},
+            'performance_target':{'status':'INCONCLUSIVE','reason':'No performance target declared'},
+            'improvement':{'status':'NOT_ESTABLISHED','reason':'Evidence does not establish improvement'},
+            'optimization_accepted':False}
+    if not valid:return answer
+    if correctness!='passed' or result.get('input_evidence_state')!='Measured':
+        return answer
+    policy=result['acceptance_policy']
+    direction=policy.get('direction',DEFINITIONS.get(result['metric'],{}).get('expected_direction','none'))
+    quality=result['sufficient_samples'] and result['stable_samples']
+    answer['statistics']={'status':'PASS' if quality else 'INCONCLUSIVE','reason':'Sample count and CV screening; interval remains descriptive'}
+    answer['non_regression']=acceptance(result,{k:v for k,v in policy.items() if k!='min_speedup'},direction)
+    if 'min_speedup' in policy:answer['performance_target']=result['acceptance']
+    if direction=='none':
+        answer['improvement']={'status':'NOT_APPLICABLE','reason':'Diagnostic metric has no declared optimization direction'}
+    elif quality:
+        lo,hi=result['bootstrap_95_percent_speedup']
+        if direction=='higher':lo,hi=1/hi,1/lo
+        answer['improvement']={'status':'SUPPORTED_IMPROVEMENT' if lo>1 else 'SUPPORTED_REGRESSION' if hi<1 else 'NOT_ESTABLISHED',
+                               'benefit_interval_95_percent':[lo,hi],
+                               'reason':'Direction-aware descriptive interval compared with 1; no materiality threshold or end-to-end claim'}
+    return answer
 
 
 def analyze(result):

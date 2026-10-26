@@ -160,3 +160,9 @@ Summaries retain each metric's cost and acceptance independently; they do not
 combine memory, timing and diagnostic observations into one score or infer an overall
 PASS. Cross-profiler workload correlation and a joint resource-gated verdict are
 not implemented. Do not accept a candidate solely because its time cost is small.
+
+
+Ordinary-program phase reports, exact scope selection, pre-execution budgets and
+separate decision gates are described in [phase observation](phase-observation.md).
+The C++ recorder and text example are not yet the general file-driven case framework;
+remaining feedback requirements are tracked in [the checklist](feedback-implementation.md).

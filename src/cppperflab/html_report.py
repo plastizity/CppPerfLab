@@ -112,30 +112,176 @@ def hotspot_section(view):
         percent = h["self_percent"]
         bar = '<div class="bar"><span style="width:' + str(min(100, max(0, percent))) + '%"></span></div>'
         rows.append([esc(h.get("sample", '—')), esc(h["symbol"]), esc(h["dso"]),
-                     number(percent) + '%' + bar, esc(h["evidence_id"])])
+                     number(percent) + '%' + bar, (number(h['inclusive_percent'])+'%') if 'inclusive_percent' in h else '—',esc(h["evidence_id"])])
     return '<p class="muted">各采样重复的 self 占比，分别展示；不是墙钟时间，不能跨重复相加。完整栈见原始 perf 文件。</p>' + (
-        table(['重复', '符号', '模块', 'self %', '证据 ID'], rows, searchable=True) if rows else '<p>没有 CPU 采样热点。</p>')
+        table(['重复', '符号', '模块', 'self %', 'observed-chain inclusive %', '证据 ID'], rows, searchable=True) if rows else '<p>没有 CPU 采样热点。</p>')
+
+
+def phases_section(view):
+    notice='<p class="notice">包含时间不能跨父子重复相加。自身时间仅在声明子阶段覆盖完整时提供；线程累计时间不等于墙钟时间。结果分类不等于正确性。</p>'
+    return notice+table(['实验 / 测量轮次','阶段路径','轨道 / 调用','输入 ID','结果 / 正确性','包含秒数','自身秒数','未归属秒数'],[
+        [esc(p.get('run_id',view['record_id'])+' / '+p.get('execution_stage','measurement')+' / '+str(p['sample'])),esc(' / '.join(p['path'])),esc(p['track_id']+' / '+p['call_id']),esc(p['input_id']),
+         esc(p['result']+' / '+p['correctness']),number(p['inclusive_seconds']),number(p['self_seconds']),number(p['unattributed_seconds'])]
+        for p in view['phases']])+details('完整阶段记录、工作量与证据',view['phases'])
+
+
+def thread_activity_section(view):
+    content=['<p class="notice">应用工作/等待是程序显式记录的墙钟作用域，不是精确 CPU 运行或 off-CPU 时间。空白区间未观测；轨道时间不可直接当作全过程耗时。</p>']
+    colors={'application_work':'#62b5ff','application_wait':'#ffa868','unclassified':'#a8a8a8'}
+    labels={'application_work':'应用工作','application_wait':'应用等待','unclassified':'未标注'}
+    for item in view['thread_timelines']:
+        content.append('<h3>'+esc(item.get('run_id',view['record_id']))+' / '+esc(item['execution_stage'])+' / '+esc(item.get('sample',item.get('measurement_group')))+'</h3>')
+        content.append(table(['轨道 / PID:TID','观测秒数','工作秒数','等待秒数','未标注秒数','等待占比','标注覆盖','证据状态 / 正确性'],[
+            [esc(t['track_id']+' / '+str(t['pid'])+':'+str(t['tid'])),number(t['observed_seconds']),number(t['work_seconds']),
+             number(t['wait_seconds']),number(t['unclassified_seconds']),number(t['wait_fraction']),number(t['annotation_coverage_fraction']),
+             esc(t['identity_state']+' / '+t['correctness_status'])] for t in item['tracks']]))
+        intervals=[v for t in item['tracks'] for v in t.get('intervals',[])]
+        if intervals:
+            start=min(v['start_ns'] for v in intervals);end=max(v['end_ns'] for v in intervals)
+            if end>start:
+                content.append('<p>蓝：应用工作；橙：应用等待；灰：已观测但未标注。悬停查看区间、原因和阶段 ID。</p>')
+                for track in item['tracks']:
+                    bars=[]
+                    for event in track.get('intervals',[]):
+                        left=100*(event['start_ns']-start)/(end-start);width=100*(event['end_ns']-event['start_ns'])/(end-start)
+                        title=labels[event['kind']]+' / '+str(event['reason'])+' / '+str(event['start_ns'])+'..'+str(event['end_ns'])+' ns / '+','.join(event['phase_ids'])
+                        bars.append('<span title="'+esc(title)+'" style="position:absolute;top:0;height:20px;left:'+format(left,'.9g')+'%;width:'+format(width,'.9g')+'%;background:'+colors[event['kind']]+'"></span>')
+                    content.append('<div>'+esc(track['track_id'])+'</div><div style="position:relative;height:20px;background:#f5f5f5;border:1px solid #bbb">'+''.join(bars)+'</div>')
+        content.append(details('应用等待原因、原始证据与 OS 数据限制',item))
+    return ''.join(content)
+
+
+def phase_summary_section(view):
+    notice='<p class="notice">阶段汇总保留包含耗时、自身耗时和调用次数的原始口径。父子包含耗时不能重复相加；缺失不是零。只有汇总日志时不生成时间线或未覆盖时间。</p>'
+    rows=[]
+    for p in view['phase_summaries']:
+        rows.append([esc(p.get('run_id',view['record_id'])+' / '+p['execution_stage']+' / '+str(p['sample'])),
+            esc(' / '.join(p['path'])+' · '+p['name']),number(p['inclusive_seconds']),esc(p['inclusive_evidence_state']),
+            number(p['self_seconds']),esc(p['self_evidence_state']+' / '+p['self_method']),number(p['calls']),
+            esc(p['correctness']),esc(str(p['source_lines']['first'])+'..'+str(p['source_lines']['last']))])
+    return notice+table(['实验 / 轮次','统一阶段路径 / 名称','包含秒数','包含证据','自身秒数','自身来源','调用次数','正确性','原日志行'],rows)+details('阶段工作量和可追溯证据',view['phase_summaries'])
+
+
+def lifecycle_section(view):
+    current=view.get('lifecycle');body=''
+    if current is not None and current.get('record_kind')=='study':
+        progress=current['progress']
+        labels=[('planned_runs','计划 Run'),('created_runs','已创建 Run'),('completed_runs','已完成 Run'),
+                ('failed_runs','失败 Run'),('cancelled_runs','取消 Run'),('timeout_runs','超时 Run'),
+                ('confirmed_running_runs','已核实运行中的 Run'),('owner_exited_records','执行者已退出的记录'),
+                ('unverified_running_records','存活未核实的记录'),('normalized_samples','已保存测量样本')]
+        body+=table(['进度口径','数量'],[[esc(label),esc(progress[key])] for key,label in labels])
+        body+=table(['执行链','记录 ID','已保存状态'],[[esc(row['record_kind']),esc(row['record_id']),esc(row['status'])] for row in current['active_path']])
+        body+=table(['子 Run','结果状态','当前存活核验','候选处置','替代结果'],[
+            [esc(row['run_id']),esc(row['run_status']),esc(row['observed_state']),
+             esc(row['candidate']['candidate_state']),esc(row['candidate']['superseded_by'])] for row in current['runs']])
+        body+='<p>计数不代表等量工作或优化验收；全过程 ETA：'+esc(current['eta']['evidence_state'])+'。</p>'
+    elif current is not None:
+        eta=current['workflow_eta']
+        body+=table(['全过程 ETA 证据','预计剩余秒数','已用秒数','匹配历史次数'],[
+            [esc(eta['evidence_state']),number(eta['total_remaining_seconds']),number(eta['elapsed_seconds']),esc(eta['n'])]])
+        body+='<p>'+esc(eta['reason'])+'。这是平台工作流成本估计，历史范围不是置信区间，也不是目标程序性能指标。</p>'
+        body+=details('全过程 ETA 的来源与限制',eta)
+    return body+details('运行状态与存活核验',current)+details('候选保留、撤回与替代历史',view.get('candidate'))
+
+
+def sampling_section(view):
+    profiles=view['sampling_profiles']
+    content=['<p class="notice">可解释性与性能收益分开。比例按已记录的 CPU 事件周期加权；部分调用链不证明完整展栈。</p>']
+    content.append(table(['Run / 阶段 / 启动组','样本数','已解析叶帧比例','未解析叶帧比例','前两帧已解析比例','记录的丢失数','证据状态'],[
+        [esc(p.get('run_id',view['record_id'])+' / '+p['execution_stage']+' / '+str(p['measurement_group'])),esc(p['quality']['sample_count']),
+         number(p['quality']['resolved_self_fraction']),number(p['quality']['unresolved_self_fraction']),number(p['quality']['resolved_two_frame_fraction']),esc(p['quality']['lost_events']),esc(p['evidence_state'])] for p in profiles]))
+    precheck=view['conditions'].get('sampling_precheck')
+    if precheck:
+        content.append('<p>目标预检：'+esc(precheck['status'])+'</p>')
+        content.append(table(['预检项','状态','观测值','预设门槛'],[[esc(k),esc(c['status']),number(c.get('observed')),number(c.get('threshold'))] for k,c in precheck['checks'].items()]))
+    content.append(details('时钟、ELF/工具来源及原始样本引用',profiles))
+    return ''.join(content)
+
+
+def cpu_selection_section(view):
+    selection=view['cpu_selection']
+    result='<p class="notice">筛选状态不是性能验收。函数自身/包含占比使用同一筛选后的事件周期分母，包含占比只覆盖已观察调用链。</p>'
+    denominator=selection['denominator']
+    if denominator:
+        result+=table(['筛选状态','选中/整次样本数','选中/整次记录周期','记录周期覆盖比','未解析叶帧比例'],[[esc(selection['selection_status']),
+            esc(str(denominator['selected_sample_count'])+' / '+str(denominator['whole_sample_count'])),
+            esc(str(denominator['selected_recorded_period'])+' / '+str(denominator['whole_recorded_period'])),
+            number(denominator['selected_fraction_of_recorded_period']),number(denominator['unresolved_selected_self_fraction'])]])
+    return result+details('筛选条件、分母、未解析比例和覆盖限制',selection)
+
+
+def runtime_identity_section(view):
+    reports=view['runtime_identities']
+    content=['<p class="notice">这是运行时 /proc 执行文件与文件映射观测。周期快照可能遗漏短进程和瞬时加载；文件哈希不是内存代码哈希，预检观测不证明后续测量的加载情况。</p>']
+    content.append(table(['Run / 阶段 / 测量启动组','证据状态','目标快照数','观察到的实际执行文件','对象数','身份验收','截断'],[
+        [esc(r.get('run_id',view['record_id'])+' / '+r['execution_stage']+' / '+str(r['measurement_group'])),
+         esc(r['evidence_state']),esc(r['target_snapshots']),esc(', '.join(sorted({p['actual_executable'] for p in r['actual_executables']}))),
+         esc(len(r['objects'])),esc(r['acceptance']['status']),esc(r['truncations'])] for r in reports]))
+    content.append(table(['阶段 / 启动组','PID / start ticks','实际路径','来源','设备 / inode','哈希状态','SHA-256'],[
+        [esc(r['execution_stage']+' / '+str(r['measurement_group'])),esc(str(o['pid'])+' / '+str(o['start_ticks'])),esc(o['path']),
+         esc(o['sources']),esc(str(o['device'])+' / '+str(o['inode'])),esc(o['hash']['evidence_state']),esc(o['hash']['sha256'])]
+        for r in reports for o in r['objects']]))
+    content.append(details('原始快照引用、身份规则及观测开销',reports))
+    return ''.join(content)
 
 
 def comparisons_section(view):
     content = []
     for c in view["comparisons"]:
-        content.append('<article><h3>' + esc(c["metric"]) + (': scale=' + esc(c["scale"]) if 'scale' in c else '') + '</h3>')
-        from .comparison import normalized_cost
+        content.append('<article><h3>' + esc(c["metric"]) + (' · '+esc(c['case_id']) if 'case_id' in c else '') + (': scale=' + esc(c["scale"]) if 'scale' in c else '') + '</h3>')
+        from .comparison import normalized_cost, decisions
+        verdict=decisions(c)
+        labels={'correctness':'正确性','comparability':'可比性','statistics':'统计筛查','non_regression':'回退门槛','performance_target':'预设目标','improvement':'加速证据'}
+        content.append(table(['判断项','结论','依据'],[[label,esc(verdict[key]['status']),esc(verdict[key]['reason'])] for key,label in labels.items()]))
+        content.append('<p>回退门槛通过不代表确认加速；局部改善不代表全过程改善。</p>')
         content.append(details("归一化性能成本（基线 1，越小越好）与验收", normalized_cost(c)))
         if not c["comparable"]:
             content.append('<p class="alert">不可比：未计算加速比。</p>' + details('测量条件差异', c["error"]["details"]) + '</article>')
             continue
         content.append('<p class="status">' + esc(c["classification"]) + '</p>')
-        content.append(table(['组', '中位数 (' + c["unit"] + ')', '重复数', 'CV'], [
+        content.append(table(['组', '中位数 (' + c["unit"] + ')', '区块数' if c['policy'].get('paired') else '重复数', 'CV'], [
             ['Baseline', number(c["baseline_median"]), str(len(c["baseline_samples"])), number(c["coefficient_of_variation"][0])],
             ['Candidate', number(c["candidate_median"]), str(len(c["candidate_samples"])), number(c["coefficient_of_variation"][1])]]))
         content.append('<p>观测中位数比：' + number(c["speedup"]) + '；描述性 bootstrap 95% 区间：' + esc(c["bootstrap_95_percent_speedup"]) + '</p>')
         content.append(line_plot([{"label": label, "points": list(enumerate(c[key]))} for label, key in
-                                  [('Baseline', 'baseline_samples'), ('Candidate', 'candidate_samples')]], '组内重复序号（非配对）', c["unit"]))
+                                  [('Baseline', 'baseline_samples'), ('Candidate', 'candidate_samples')]], '配对区块序号' if c['policy'].get('paired') else '组内重复序号（非配对）', c["unit"]))
+        if c['policy'].get('paired'):
+            content.append(details('配对区块与原始来源',{'estimator':c['estimator'],'paired_ratio_cv':c['paired_ratio_cv'],'blocks':c['block_pairs']}))
         content.append(details('比较政策与构建差异', {"policy": c["policy"], "treatment": c["treatment"]}))
         content.append(details('完整比较数据', c) + '</article>')
     return ''.join(content) or '<p class="muted">没有比较结果。</p>'
+
+
+def cases_section(view):
+    return '<p class="notice">捕获时的耗时只用于诊断选样，不能当作独立回放的生产基线。各 case 与工具范围分开判断。</p>'+table(
+        ['样本','状态','捕获分类','捕获正确性'],[[esc(c['sample_id']),esc(c['status']),esc(c['capture_result']),esc(c['capture_correctness'])] for c in view['overview']['cases']])+details('运行顺序与预算',view['conditions'])
+
+
+def assessment_section(view):
+    assessment=view['overview']['assessment']
+    content=['<p class="notice">联合验收、加速证据分别判断。不同 profiler 的时间和内存保留各自范围，不混合统计。</p>']
+    content.append(table(['判断项','结论'],[['正确性',esc(assessment.get('correctness','INCONCLUSIVE'))],['联合验收',esc(assessment['acceptance'])],
+        ['全过程加速',esc(assessment['end_to_end_improvement'])]]))
+    content.append(table(['输入','正确性','联合验收','全过程加速','工作量归因'],[
+        [esc(c['case_id']),esc(c['correctness']),esc(c['acceptance']),esc(c['end_to_end_improvement']),esc(c['work_attribution'])]
+        for c in assessment['cases']]))
+    content.append(table(['输入','采集配置','角色','指标及范围','基线中位数','候选中位数','单位','验收门','门结果'],[
+        [esc(c['case_id']),esc(c['profile_id']),esc(c['assessment_role']),esc(c['metric']+' / '+str(c.get('metric_scope'))),
+         number(c['baseline_median']),number(c['candidate_median']),esc(c['unit']),esc(c['assessment_gate']),
+         esc(c['decisions'][c['assessment_gate']]['status']) if c['assessment_gate']!='informational' else 'INFORMATIONAL']
+        for c in view['comparisons']]))
+    content.append(details('完整联合结论与工作量',assessment))
+    content.append(details('采集任务、子 Study 与未执行项',view['overview']['jobs']))
+    content.append(details('预先声明的验收条件、运行预算与版本指纹',view['conditions']))
+    return ''.join(content)
+
+
+def paired_section(view):
+    return '<p class="notice">串行交错；资源隔离未强制。ABBA 作为一个区块，不能当作两个独立配对。</p>'+table(
+        ['区块','预设顺序','区块状态','位置','版本','Run ID','成员状态'],[
+        [esc(b['block_id']),esc(b['order']),esc(b['status']),esc(m['slot']),esc(m['variant']),esc(m['run_id']),esc(m['status'])]
+        for b in view['overview']['blocks'] for m in b['members']])+details('完整区块及未执行计划',view['overview']['blocks'])+details('运行预算与资源条件',view['conditions'])
 
 
 def growth_section(view):
@@ -216,11 +362,31 @@ def render_html(view, store, output):
                 ('quality', '可信度与限制', '<ul>' + quality + '</ul>' + '<ul>' + ''.join('<li>' + esc(x) + '</li>' for x in view["limitations"]) + '</ul>')]
     if view['error']:
         sections[2] = (sections[2][0], sections[2][1], details('实验错误', view['error']) + sections[2][2])
+    if view.get('lifecycle') is not None or view.get('candidate') is not None:
+        sections.append(('lifecycle','实验进度与候选记录',lifecycle_section(view)))
     if view['view_kind'] in ('run', 'summary'):
         sections.extend([('metrics', '指标与样本', metrics_section(view)), ('hotspots', '采样热点', hotspot_section(view)),
                          ('reasoning', '事实与待验证假设', details('观测事实', view['facts']) + details('待验证假设', view['hypotheses']))])
+    if view.get('cpu_selection') is not None:
+        sections.append(('cpu-selection','CPU 样本筛选与分母',cpu_selection_section(view)))
+    if view['sampling_profiles']:
+        sections.append(('sampling','采样可解释性',sampling_section(view)))
+    if view['runtime_identities']:
+        sections.append(('runtime-identity','实际执行文件与加载映射',runtime_identity_section(view)))
+    if view['phases']:
+        sections.append(('phases','阶段与输入',phases_section(view)))
+    if view['phase_summaries']:
+        sections.append(('phase-summaries','映射后的阶段汇总',phase_summary_section(view)))
+    if view['thread_timelines']:
+        sections.append(('thread-activity','线程应用活动时间线',thread_activity_section(view)))
     if view['view_kind'] == 'study':
-        sections.append(('growth', '强扩展' if view['overview'].get('scaling') else '规模增长', growth_section(view)))
+        if view['overview'].get('analysis')=='assessment':
+            sections.append(('assessment','联合性能评估',assessment_section(view)))
+            sections.append(('metrics','各输入和采集范围的指标',metrics_section(view)))
+        elif view['overview'].get('analysis')=='cases':
+            sections.append(('cases','文件样本实验',cases_section(view)))
+            sections.append(('metrics','各输入的指标与样本',metrics_section(view)))
+        else:sections.append(('paired','交错对照',paired_section(view)) if view['overview'].get('analysis')=='paired' else ('growth', '强扩展' if view['overview'].get('scaling') else '规模增长', growth_section(view)))
     if view['view_kind'] != 'run':
         sections.append(('comparison', '实验比较', comparisons_section(view)))
     sections.append(('evidence', '原始证据', '<p>链接指向本机实验归档；移动 HTML 后需保留其相对位置。哈希为归档记录值，点击链接不执行校验；Agent evidence 查询执行校验。</p>' + table(['Run ID', '文件', '字节数', '记录 SHA-256'], evidence, searchable=True)))

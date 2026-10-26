@@ -3,6 +3,7 @@ import hashlib
 import json
 import math
 import os
+import re
 from pathlib import Path
 import shutil
 
@@ -62,7 +63,7 @@ def load_request(path):
         raise LabError("unsupported_schema", "Only request schema_version=1 is supported")
     require(isinstance(request["name"], str) and bool(request["name"]), "name must be nonempty")
     workload = request["workload"]
-    fields(workload, ("id", "parameters", "inputs"), ("id", "parameters", "inputs"), "workload")
+    fields(workload, ("id", "parameters", "inputs", "expected_hashes"), ("id", "parameters", "inputs"), "workload")
     require(isinstance(workload["id"], str) and bool(workload["id"]), "workload.id must be nonempty")
     require(isinstance(workload["parameters"], dict), "workload.parameters must be an object")
     require(isinstance(workload["inputs"], list), "workload.inputs must be an array of paths")
@@ -71,6 +72,16 @@ def load_request(path):
         p = (path.parent / item).resolve()
         require(p.is_file(), "input missing: " + str(p))
         workload["inputs"][i] = str(p)
+    if 'expected_hashes' in workload:
+        expected=workload['expected_hashes']
+        require(isinstance(expected,dict),'expected_hashes must be an object')
+        resolved={}
+        for name,digest in expected.items():
+            require(isinstance(name,str) and isinstance(digest,str) and re.fullmatch(r'[0-9a-f]{64}',digest),'Invalid expected input hash')
+            key=str((path.parent/name).resolve())
+            require(key in workload['inputs'] and key not in resolved,'Expected hashes must name distinct declared inputs')
+            resolved[key]=digest
+        workload['expected_hashes']=resolved
     target = request["target"]
     fields(target, ("argv", "cwd", "environment", "build"), ("argv", "environment", "build"), "target")
     argv(target["argv"], "target.argv")
@@ -91,17 +102,41 @@ def load_request(path):
     build["artifacts"] = [str((path.parent / p).resolve()) for p in build["artifacts"]]
     require(all(Path(p).is_file() for p in build["artifacts"]), "build artifact missing")
     measurement = request["measurement"]
-    fields(measurement, ("tool", "repetitions", "warmups", "timeout_seconds", "cpu_affinity", "options", "limits"),
+    fields(measurement, ("tool", "repetitions", "warmups", "timeout_seconds", "cpu_affinity", "options", "limits", "phase_report", "phase_import", "runtime_identity", "progress"),
            ("tool", "repetitions", "warmups", "timeout_seconds", "options"), "measurement")
     require(isinstance(measurement["tool"], str), "tool must be a string")
     positive(measurement["repetitions"], "repetitions", integer=True)
     positive(measurement["warmups"], "warmups", zero=True, integer=True)
     positive(measurement["timeout_seconds"], "timeout_seconds")
     require(isinstance(measurement["options"], dict), "options must be an object")
+    if 'progress' in measurement:require(type(measurement['progress']) is bool,'progress must be boolean')
     if "cpu_affinity" in measurement:
         cpus = measurement["cpu_affinity"]
         require(isinstance(cpus, list) and bool(cpus) and all(type(n) is int and n >= 0 for n in cpus), "cpu_affinity must be a nonempty CPU list")
         require(hasattr(os, "sched_getaffinity") and set(cpus) <= os.sched_getaffinity(0), "requested affinity unavailable")
+    if 'phase_report' in measurement:
+        report=measurement['phase_report']
+        require(isinstance(report,str) and Path(report).name==report and report.endswith('.phases.json') and '\x00' not in report,
+                'phase_report must be a *.phases.json filename in the measurement directory')
+    if 'phase_import' in measurement:
+        spec=measurement['phase_import']
+        fields(spec,('source','mapping','mapping_sha256'),('source','mapping'),'phase import')
+        require('phase_report' in measurement,'phase_import requires a phase_report destination')
+        require(isinstance(spec['source'],str) and bool(spec['source']) and Path(spec['source']).name==spec['source']
+            and '\x00' not in spec['source'] and spec['source'] not in (measurement['phase_report'],'phase-import.mapping.json'),
+            'phase_import source must be a distinct filename inside the execution directory')
+        require(isinstance(spec['mapping'],str) and bool(spec['mapping']),'phase_import mapping path required')
+        spec['mapping']=str((path.parent/spec['mapping']).resolve())
+        from .phase_import import load_mapping
+        load_mapping(spec['mapping'])
+        actual=sha256(spec['mapping'])
+        if 'mapping_sha256' in spec:
+            require(isinstance(spec['mapping_sha256'],str) and re.fullmatch(r'[0-9a-f]{64}',spec['mapping_sha256'])
+                and spec['mapping_sha256']==actual,'Pinned phase mapping hash does not match')
+        spec['mapping_sha256']=actual
+    if 'runtime_identity' in measurement:
+        from .runtime_identity import validate_config
+        validate_config(measurement['runtime_identity'],path.parent)
     limits = measurement.get("limits", {})
     fields(limits, ("address_space_bytes", "cpu_seconds"), (), "limits")
     for key, value in limits.items():

@@ -246,13 +246,14 @@ class Adapter:
         return override or find_tool(self.executable)
 
     def describe(self):
+        extras={'option_schema':'sampling.schema.json#/$defs/options','structured_outputs':['sampling_profiles and streaming cpu-samples.jsonl when sample_trace=true']} if self.id=='perf-record' else {}
         return {**self.__dict__, "platforms": ["Linux", "WSL2 with successful probe"],
                 "compilers": ["any for external executable"], "hardware": ["tool/OS supported CPU; probe required"],
                 "source_instrumentation": self.id == "google-benchmark", "recompile_required": self.id == "google-benchmark",
                 "target_integration_required": self.id == "google-benchmark",
                 "debug_symbols": "recommended for symbolized stacks",
                 "operations": ["describe", "probe", "validate", "prepare", "parse"],
-                "parser_version": 1}
+                "parser_version": 1,**extras}
 
     def configured_metrics(self, options):
         if self.id=='perf-stat':return [EVENTS[e][0] for e in options.get('events',['duration_time'])]
@@ -270,7 +271,7 @@ class Adapter:
         return list(self.metrics)
 
     def validate(self, options):
-        allowed = {"google-benchmark": {"filter", "min_time_seconds", "warmup_seconds", "counters", "stage"}, "hyperfine": set(), "perf-stat": {"events"}, "perf-record": {"frequency"}, "massif": set(), "callgrind": set(), "dhat": {"operation_count"}, "cachegrind": {"I1","D1","LL"}}[self.id]
+        allowed = {"google-benchmark": {"filter", "min_time_seconds", "warmup_seconds", "counters", "stage"}, "hyperfine": set(), "perf-stat": {"events"}, "perf-record": {"frequency","call_graph","sample_trace","symbolizer","precheck"}, "massif": set(), "callgrind": set(), "dhat": {"operation_count"}, "cachegrind": {"I1","D1","LL"}}[self.id]
         require(not set(options) - allowed, self.id + ": unsupported options " + str(set(options) - allowed))
         if self.id=='dhat' and 'operation_count' in options:
             from .protocol import positive
@@ -286,6 +287,8 @@ class Adapter:
             require(isinstance(events, list) and bool(events) and all(isinstance(x, str) for x in events)
                     and len(events) == len(set(events)) and set(events) <= set(EVENTS), "unsupported or duplicate perf events")
         if self.id == "perf-record":
+            from .sampling import validate_options
+            validate_options(options)
             rate = options.get("frequency", 99)
             require(type(rate) is int and 1 <= rate <= 1000, "sampling frequency must be 1..1000")
         if self.id == "google-benchmark":
@@ -330,8 +333,15 @@ class Adapter:
             return [exe, "stat", "--no-scale", "-x", ";", "-o", str(directory / "perf.csv"),
                     "-e", ",".join(options.get("events", ["duration_time"])), "--"] + command
         if self.id == "perf-record":
-            return [exe, "record", "-e", "cpu-clock", "-F", str(options.get("frequency", 99)),
-                    "--call-graph", "dwarf", "-o", str(directory / "perf.data"), "--"] + command
+            method=options.get('call_graph','dwarf')
+            args=[exe,"record","-e","cpu-clock","-F",str(options.get('frequency',99))]
+            if method!='none':args+=['--call-graph',method]
+            if options.get('sample_trace',False):
+                from .sampling import clock_context
+                from .storage import write_json
+                write_json(directory/'sampling-context.json',clock_context())
+                args+=['--clockid','mono','-T','-P']
+            return args+['-o',str(directory/'perf.data'),'--']+command
         if self.id=='cachegrind':
             return [exe,'--tool=cachegrind','--cache-sim=yes','--branch-sim=yes',
                     '--cachegrind-out-file='+str(directory/'cachegrind.out')]+[
@@ -379,9 +389,16 @@ class Adapter:
                            {"returncode": record["returncode"]})
         if result["unavailable_metrics"]:
             raise LabError("unavailable", "Requested events could not be counted", result)
+        if self.id=='perf-record' and options.get('sample_trace',False):
+            from .sampling import command as postprocess,normalize_trace
+            postprocess([self.tool_path(),'script','--ns','--show-mmap-events','--show-task-events','--show-lost-events',
+                '-F','pid,tid,time,event,period,ip,sym,dso,dsoff','-i',str(directory/'perf.data')],directory/'script',read_output=False)
+            postprocess([self.tool_path(),'evlist','-v','-i',str(directory/'perf.data')],directory/'sample-attributes')
+            result.update(normalize_trace(directory,options,{name:find_tool(name) for name in ('readelf','addr2line')},record.get('analysis_artifact_hashes')))
         return result
 
     def probe(self, directory, options=None, target=None):
+        target_definition=target
         options = options or {}
         directory.mkdir(parents=True)
         if self.id == "google-benchmark":
@@ -435,6 +452,10 @@ class Adapter:
                 extra["symbolization_available"] = bool(re.search(r"libelf:\s*\[\s*on", text)) if build["returncode"] == 0 else None
                 extra["dwarf_unwind_available"] = bool(re.search(r"(?:dwarf-unwind|libunwind):\s*\[\s*on", text)) if build["returncode"] == 0 else None
             from .protocol import sha256
+            if self.id=='perf-record' and options.get('sample_trace',False):
+                from .sampling import static_readiness
+                extra['sampling_readiness']=static_readiness(target_definition,directory/'target-readiness',options,extra,
+                    {name:find_tool(name) for name in ('readelf','addr2line')})
             return {"tool": self.id, "available": True, "version": version, "options": options, **extra,
                     "executable_path": exe, "executable_sha256": sha256(exe),
                     "limitations": parsed.get("limitations", []),
@@ -473,12 +494,12 @@ REGISTRY = {
                 ("perf_event permissions for requested events",),
                 ("WSL PMU fidelity is not established by access alone", "Short commands include startup and measurement overhead",
                  "Generic cache events are not memory-bandwidth measurements"), ("perf delimiter CSV",)),
-        Adapter("perf-record", "perf", "CPU-clock sampling and DWARF call stacks",
+        Adapter("perf-record", "perf", "CPU-clock sampling with explicitly selected call graphs",
                 ("cpu.hotspots",), "moderate", "sampling",
                 "https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/tools/perf", "GPL-2.0",
-                ("software event access", "DWARF unwinding support"),
+                ("software event access", "selected call graph and symbolizer support"),
                 ("on-CPU only; does not establish lock waiting", "sampling perturbs execution", "symbol quality depends on target artifacts"),
-                ("perf.data", "perf report delimited text")),
+                ("perf.data", "perf report delimited text", "optional timestamped CPU JSONL")),
         Adapter('callgrind','valgrind','Instrumented dynamic call edges and guest instruction counts',
                 ('control.call_count','callgrind.instructions'),'high','instrumentation',
                 'https://valgrind.org/docs/manual/cl-manual.html','GPL-2.0-or-later',

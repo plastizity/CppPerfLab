@@ -65,6 +65,15 @@ An external executable is configured solely through `target.argv`, build
 metadata and its independent correctness command; no target integration is needed.
 See [protocol](docs/protocol.md) for paths, inputs and comparison semantics.
 
+For ordinary-program phase records, lightweight C++ scopes and non-executing
+execution-budget previews, see [phase observation](docs/phase-observation.md).
+For complete exported input capture and an optional C++17 function/class adapter,
+see [sample replay](docs/sample-capture.md) and the
+[file-case framework](docs/file-case-framework.md). Both reuse ordinary runs,
+metrics, correctness, comparison and reports. No business rebuild is implied.
+The full feedback implementation scope is tracked in
+[the implementation checklist](docs/feedback-implementation.md).
+
 ## Algorithm experiments
 
 ```bash
@@ -88,7 +97,41 @@ For named pipeline stages, work counters and fixed-work thread scaling, see
 solver logs, convergence history and independent per-solve acceptance, see
 [solver validation](docs/solver-validation.md).
 
+Serial random AB/BA and ABBA designs, full execution budgets and block-preserving
+statistics are available through [paired studies](docs/paired-studies.md). They
+reuse ordinary runs and Comparison; ordinary `compare` remains unpaired.
+
+For one preregistered workflow combining process/stage timing, actual work and
+memory gates, see [joint assessment](docs/joint-assessment.md). It composes the
+existing paired/case Studies and verifies case/variant file identity across
+profilers, while keeping native and instrumented measurements separate.
+
+Optional [runtime identity observation](docs/runtime-identity.md) records actual
+executables and executable file mappings, including dynamically loaded modules.
+Explicit path/hash expectations can reject stale library loading even when output
+correctness passes. Periodic snapshots retain their coverage and overhead limits.
+
+Optional [sampling interpretability](docs/sampling-interpretability.md) checks the
+selected symbolizer/call-graph prerequisites and profiles the existing preflight
+when requested. `perflab profile RUN_ID --measurement 0 --phase-path '["model","kernel_a"]' --json`
+selects archived CPU samples by explicitly correlated phase/thread windows and
+reports selected/whole period denominators and unresolved shares. It does not
+infer waiting or exact function duration from CPU samples.
+
 ## Interfaces and evidence
+
+For existing program logs, [phase log mapping](docs/phase-log-mapping.md) accepts
+format templates or field keywords. `perflab phases import --config map.json
+--input run.log --output stages.phases.json --json` converts without executing a
+target; `measurement.phase_import` attaches the same conversion to the existing
+run. Original logs and mappings remain traceable, with missing fields preserved.
+
+Use `perflab status RUN_ID --json` to view process liveness, recorded build identity
+and candidate disposition together. Use `perflab status STUDY_ID --kind study --json`
+to inspect nested Study and run progress through persisted child links. [Run and Study
+status](docs/run-status.md) documents opt-in progress, ETA limits, artifact verification
+and revision-controlled `annotate` commands. Live progress writes have unquantified
+measurement interference and require an explicit high-overhead diagnostic path.
 
 Agent queries and offline human reports use one shared analysis view:
 

@@ -17,7 +17,7 @@ def kill_group(pid, sig):
 
 
 def execute(argv, directory, *, cwd=None, env=None, timeout=60, affinity=None,
-            limits=None):
+            limits=None, runtime_identity=None, identity_target=None, identity_direct=False,on_start=None):
     """Return execution facts; nonzero child status is interpreted by the adapter.
 
     Each child gets its own session. Detached/daemonizing workloads are unsupported.
@@ -52,8 +52,26 @@ def execute(argv, directory, *, cwd=None, env=None, timeout=60, affinity=None,
         except (OSError, subprocess.SubprocessError) as error:
             raise LabError("tool_failed", "Could not launch process", {"reason": str(error), "argv": argv}) from error
         status = "completed"
+        observer = None
+        deadline=time.monotonic()+timeout
         try:
-            process.wait(timeout=timeout)
+            if on_start is not None:on_start(process.pid)
+            if runtime_identity is None:
+                process.wait(timeout=max(0,deadline-time.monotonic()))
+            else:
+                from .runtime_identity import RuntimeObserver
+                observer=RuntimeObserver(directory,runtime_identity,identity_target,identity_direct)
+                observer.root_pid=process.pid
+                while process.poll() is None:
+                    if observer.active:observer.sample(process.pid)
+                    if not observer.active and process.poll() is None:observer.truncations.add('max_snapshots')
+                    remaining=deadline-time.monotonic()
+                    if remaining<=0:
+                        status='timeout';break
+                    interval=runtime_identity['interval_ms']/1000 if observer.active else remaining
+                    try:process.wait(timeout=min(remaining,interval))
+                    except subprocess.TimeoutExpired:
+                        if time.monotonic()>=deadline:status='timeout';break
         except subprocess.TimeoutExpired:
             status = "timeout"
         except KeyboardInterrupt:
@@ -67,7 +85,8 @@ def execute(argv, directory, *, cwd=None, env=None, timeout=60, affinity=None,
                 kill_group(process.pid, signal.SIGKILL)
                 process.wait()
             kill_group(process.pid, signal.SIGKILL)
-    return {"argv": argv, "cwd": str(cwd or directory), "environment": child_env,
+            if observer is not None:observer.finish()
+    return {"argv": argv, "cwd": str(cwd or directory), "environment": child_env,"pid":process.pid,
             "returncode": process.returncode, "status": status,
             "orchestrator_elapsed_seconds": time.monotonic() - started,
             "timing_scope": "diagnostic launcher lifetime; not a target performance metric"}

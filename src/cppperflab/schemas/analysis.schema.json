@@ -229,6 +229,9 @@
           "items": {
             "type": "string"
           }
+        },
+        "assessment": {
+          "type": "object"
         }
       },
       "additionalProperties": false
@@ -246,6 +249,52 @@
       }
     },
     "allocation_sites": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "phases": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "runtime_identities": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "sampling_profiles": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "cpu_selection": {
+      "type": "object"
+    },
+    "lifecycle": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "candidate": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "thread_timelines": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "description": "Per-launch application activity summaries; detailed source intervals are loaded through timeline queries"
+    },
+    "phase_summaries": {
       "type": "array",
       "items": {
         "type": "object"
