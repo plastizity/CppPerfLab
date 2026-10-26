@@ -1,0 +1,510 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cppperflab:scheduler-timeline:1",
+  "title": "CppPerfLab Linux perf thread switch timeline v1",
+  "description": "Versioned per-run summary and paged query results for paired Linux perf context-switch intervals.",
+  "$defs": {
+    "evidenceState": {
+      "enum": [
+        "Measured",
+        "Estimated",
+        "Modeled",
+        "Unsupported",
+        "Missing",
+        "Invalid"
+      ]
+    },
+    "clock": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "const": "CLOCK_MONOTONIC"
+        },
+        "boot_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pid_namespace": {
+          "type": "string",
+          "minLength": 1
+        },
+        "time_namespace": {
+          "type": "string",
+          "minLength": 1
+        },
+        "monotonic_offset_ns": {
+          "type": "integer"
+        },
+        "before_launch_monotonic_ns": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "after_capture_monotonic_ns": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "name",
+        "boot_id",
+        "pid_namespace",
+        "time_namespace",
+        "monotonic_offset_ns",
+        "before_launch_monotonic_ns",
+        "after_capture_monotonic_ns"
+      ],
+      "additionalProperties": true
+    },
+    "issue": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "code",
+        "line",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "track": {
+      "type": "object",
+      "properties": {
+        "track_id": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*:[1-9][0-9]*:[0-9]+$"
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "tid": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "switch_event_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "first_switch_ns": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "last_switch_ns": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "on_cpu_seconds": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "off_cpu_seconds": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "closed_interval_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "left_censored": {
+          "const": true
+        },
+        "right_censored": {
+          "const": true
+        },
+        "lifetime_complete": {
+          "const": false
+        }
+      },
+      "required": [
+        "track_id",
+        "pid",
+        "tid",
+        "generation",
+        "switch_event_count",
+        "first_switch_ns",
+        "last_switch_ns",
+        "on_cpu_seconds",
+        "off_cpu_seconds",
+        "closed_interval_count",
+        "left_censored",
+        "right_censored",
+        "lifetime_complete"
+      ],
+      "additionalProperties": false
+    },
+    "interval": {
+      "type": "object",
+      "properties": {
+        "track_id": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*:[1-9][0-9]*:[0-9]+$"
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "tid": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "state": {
+          "enum": [
+            "on_cpu",
+            "off_cpu"
+          ]
+        },
+        "start_ns": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "end_ns": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "duration_ns": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "start_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "end_line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "evidence_state": {
+          "const": "Measured"
+        }
+      },
+      "required": [
+        "track_id",
+        "pid",
+        "tid",
+        "generation",
+        "state",
+        "start_ns",
+        "end_ns",
+        "duration_ns",
+        "start_line",
+        "end_line",
+        "evidence_state"
+      ],
+      "additionalProperties": false
+    },
+    "profile": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "source": {
+          "const": "perf-record-switch"
+        },
+        "evidence_state": {
+          "enum": ["Measured", "Missing", "Invalid"]
+        },
+        "clock": {
+          "$ref": "#/$defs/clock"
+        },
+        "native_evidence": {
+          "type": "string",
+          "minLength": 1
+        },
+        "events_evidence": {
+          "type": "string",
+          "minLength": 1
+        },
+        "intervals_evidence": {
+          "type": "string",
+          "minLength": 1
+        },
+        "switch_event_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "loss_record_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/issue"
+          }
+        },
+        "tracks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/track"
+          }
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "execution_stage": {
+          "enum": [
+            "preflight",
+            "measurement"
+          ]
+        },
+        "measurement_group": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "evidence": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "schema_version",
+        "source",
+        "evidence_state",
+        "clock",
+        "native_evidence",
+        "events_evidence",
+        "switch_event_count",
+        "loss_record_count",
+        "issues",
+        "tracks",
+        "limitations"
+      ],
+      "additionalProperties": false,
+      "description": "Stored per-launch scheduler summary or the same summary nested in a read-only query result."
+    },
+    "query": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "run_id": {
+          "type": "string",
+          "pattern": "^\\d{8}T\\d{6}-[0-9a-f]{12}$"
+        },
+        "run_status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_error": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "execution_stage": {
+          "enum": [
+            "preflight",
+            "measurement"
+          ]
+        },
+        "measurement_group": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "selection_status": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "INCONCLUSIVE",
+            "UNSUPPORTED"
+          ]
+        },
+        "evidence_state": {
+          "$ref": "#/$defs/evidenceState"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "selection": {
+          "type": "object",
+          "properties": {
+            "track": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "track",
+            "offset",
+            "limit"
+          ],
+          "additionalProperties": false
+        },
+        "profile": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/profile"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tracks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/track"
+          }
+        },
+        "intervals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/interval"
+          }
+        },
+        "interval_page": {
+          "type": "object",
+          "properties": {
+            "offset": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "total": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "returned": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "offset",
+            "limit",
+            "total",
+            "returned",
+            "truncated"
+          ],
+          "additionalProperties": false
+        },
+        "correctness_status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "references": {
+          "type": "object",
+          "properties": {
+            "profile": {
+              "type": "string",
+              "minLength": 1
+            },
+            "native": {
+              "type": "string",
+              "minLength": 1
+            },
+            "events": {
+              "type": "string",
+              "minLength": 1
+            },
+            "intervals": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "profile",
+            "native",
+            "events",
+            "intervals"
+          ],
+          "additionalProperties": false
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "run_id",
+        "run_status",
+        "source_error",
+        "execution_stage",
+        "measurement_group",
+        "selection_status",
+        "evidence_state",
+        "selection",
+        "profile",
+        "tracks",
+        "intervals",
+        "interval_page"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/profile"
+    },
+    {
+      "$ref": "#/$defs/query"
+    }
+  ]
+}

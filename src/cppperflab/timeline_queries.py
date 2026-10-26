@@ -37,3 +37,13 @@ def timeline_view(store,selection):
     view['thread_timelines']=[dict(selection,evidence_id=evidence_id(selection['run_id'],selection['evidence']))]
     view['conditions']['timeline_selection']=dict(execution_stage=selection['execution_stage'],measurement_group=selection['measurement_group'])
     return view
+
+
+def scheduler_timeline_view(store, selection):
+    view=build_view(store,selection['run_id'])
+    view['scheduler_timelines']=[]
+    reference=selection.get('references',{}).get('profile')
+    view['scheduler_queries']=[dict(selection,evidence_id=evidence_id(selection['run_id'],reference) if reference else None)]
+    view['conditions']['scheduler_timeline_selection']=dict(execution_stage=selection['execution_stage'],
+        measurement_group=selection['measurement_group'],selection=selection['selection'])
+    return view

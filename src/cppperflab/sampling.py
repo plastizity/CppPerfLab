@@ -14,8 +14,10 @@ from .storage import write_json
 
 
 def validate_options(options):
-    for key in ('sample_trace',):
+    for key in ('sample_trace','switch_events'):
         require(key not in options or type(options[key]) is bool,key+' must be boolean')
+    require(not options.get('switch_events',False) or options.get('sample_trace',False),
+            'switch_events requires sample_trace=true for verified monotonic timestamps')
     require(options.get('call_graph','dwarf') in ('dwarf','fp','none'),'call_graph must be dwarf/fp/none')
     require(options.get('symbolizer','perf') in ('perf','addr2line'),'symbolizer must be perf/addr2line')
     require(options.get('sample_trace',False) or not {'symbolizer','precheck'}&set(options),'Symbolizer/precheck requires sample_trace=true')

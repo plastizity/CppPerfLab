@@ -246,7 +246,7 @@ class Adapter:
         return override or find_tool(self.executable)
 
     def describe(self):
-        extras={'option_schema':'sampling.schema.json#/$defs/options','structured_outputs':['sampling_profiles and streaming cpu-samples.jsonl when sample_trace=true']} if self.id=='perf-record' else {}
+        extras={'option_schema':'sampling.schema.json#/$defs/options','structured_outputs':['sampling_profiles and streaming cpu-samples.jsonl when sample_trace=true','scheduler_timelines from recorded context-switch boundaries when switch_events=true']} if self.id=='perf-record' else {}
         return {**self.__dict__, "platforms": ["Linux", "WSL2 with successful probe"],
                 "compilers": ["any for external executable"], "hardware": ["tool/OS supported CPU; probe required"],
                 "source_instrumentation": self.id == "google-benchmark", "recompile_required": self.id == "google-benchmark",
@@ -271,7 +271,7 @@ class Adapter:
         return list(self.metrics)
 
     def validate(self, options):
-        allowed = {"google-benchmark": {"filter", "min_time_seconds", "warmup_seconds", "counters", "stage"}, "hyperfine": set(), "perf-stat": {"events"}, "perf-record": {"frequency","call_graph","sample_trace","symbolizer","precheck"}, "massif": set(), "callgrind": set(), "dhat": {"operation_count"}, "cachegrind": {"I1","D1","LL"}}[self.id]
+        allowed = {"google-benchmark": {"filter", "min_time_seconds", "warmup_seconds", "counters", "stage"}, "hyperfine": set(), "perf-stat": {"events"}, "perf-record": {"frequency","call_graph","sample_trace","symbolizer","precheck","switch_events"}, "massif": set(), "callgrind": set(), "dhat": {"operation_count"}, "cachegrind": {"I1","D1","LL"}}[self.id]
         require(not set(options) - allowed, self.id + ": unsupported options " + str(set(options) - allowed))
         if self.id=='dhat' and 'operation_count' in options:
             from .protocol import positive
@@ -341,6 +341,7 @@ class Adapter:
                 from .storage import write_json
                 write_json(directory/'sampling-context.json',clock_context())
                 args+=['--clockid','mono','-T','-P']
+            if options.get('switch_events',False):args+=['--switch-events']
             return args+['-o',str(directory/'perf.data'),'--']+command
         if self.id=='cachegrind':
             return [exe,'--tool=cachegrind','--cache-sim=yes','--branch-sim=yes',
@@ -395,6 +396,11 @@ class Adapter:
                 '-F','pid,tid,time,event,period,ip,sym,dso,dsoff','-i',str(directory/'perf.data')],directory/'script',read_output=False)
             postprocess([self.tool_path(),'evlist','-v','-i',str(directory/'perf.data')],directory/'sample-attributes')
             result.update(normalize_trace(directory,options,{name:find_tool(name) for name in ('readelf','addr2line')},record.get('analysis_artifact_hashes')))
+            if options.get('switch_events',False):
+                from .scheduler import normalize_switches
+                postprocess([self.tool_path(),'script','-G','--ns','--show-switch-events','--show-task-events','--show-lost-events',
+                    '-F','pid,tid,time,event','-i',str(directory/'perf.data')],directory/'switch-script',read_output=False)
+                result['scheduler_profile']=normalize_switches(directory)
         return result
 
     def probe(self, directory, options=None, target=None):
@@ -437,6 +443,8 @@ class Adapter:
         command = ["/bin/sleep", "0.1"] if self.id == "hyperfine" else ["/bin/true"]
         if self.id == "perf-record":
             command = [sys.executable, "-c", "sum(i*i for i in range(2000000))"]
+            if options.get('switch_events',False):
+                command = [sys.executable, '-c', 'import time; sum(i*i for i in range(2000000)); time.sleep(.02)']
         target = directory / "execution"
         target.mkdir()
         try:
@@ -456,6 +464,14 @@ class Adapter:
                 from .sampling import static_readiness
                 extra['sampling_readiness']=static_readiness(target_definition,directory/'target-readiness',options,extra,
                     {name:find_tool(name) for name in ('readelf','addr2line')})
+            if self.id=='perf-record' and options.get('switch_events',False):
+                if parsed['scheduler_profile']['evidence_state']!='Measured':
+                    raise LabError('unavailable','Context-switch probe did not yield valid closed intervals',
+                        {'evidence_state':parsed['scheduler_profile']['evidence_state'],'evidence':str(target/'scheduler-profile.json')})
+                extra['context_switch_capture']=dict(evidence_state=parsed['scheduler_profile']['evidence_state'],
+                    switch_event_count=parsed['scheduler_profile']['switch_event_count'],
+                    evidence=str(target/'scheduler-profile.json'),
+                    scope='Actual per-task PERF_RECORD_SWITCH collection; does not establish wakeup or runqueue latency')
             return {"tool": self.id, "available": True, "version": version, "options": options, **extra,
                     "executable_path": exe, "executable_sha256": sha256(exe),
                     "limitations": parsed.get("limitations", []),

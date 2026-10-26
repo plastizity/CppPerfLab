@@ -13,7 +13,7 @@ from .performance_summary import summarize_performance
 
 
 SECTIONS = ("overview", "conditions", "summary", "metrics", "hotspots", "quality", "evidence",
-            "facts", "hypotheses", "growth", "comparisons", "observations", "call_edges", "allocation_sites", "phases", "phase_summaries", "runtime_identities", "sampling_profiles", "thread_timelines", "lifecycle", "candidate")
+            "facts", "hypotheses", "growth", "comparisons", "observations", "call_edges", "allocation_sites", "phases", "phase_summaries", "runtime_identities", "sampling_profiles", "thread_timelines", "scheduler_timelines", "lifecycle", "candidate")
 
 
 def evidence_id(run_id, path):
@@ -25,7 +25,7 @@ def base_view(kind, identifier, status, error):
             "status": status, "error": error, "optimization_accepted": False,
             "overview": {}, "conditions": {}, "metrics": [], "hotspots": [],
             "quality": [], "evidence": [], "facts": [], "hypotheses": [],
-            "growth": [], "comparisons": [], "limitations": [], "summary": {}, "observations": [], "call_edges": [], "allocation_sites": [], "phases": [], "phase_summaries": [], "runtime_identities": [], "sampling_profiles": [], "thread_timelines": [], "lifecycle":None, "candidate":None}
+            "growth": [], "comparisons": [], "limitations": [], "summary": {}, "observations": [], "call_edges": [], "allocation_sites": [], "phases": [], "phase_summaries": [], "runtime_identities": [], "sampling_profiles": [], "thread_timelines": [], "scheduler_timelines": [], "lifecycle":None, "candidate":None}
 
 
 def run_view(result):
@@ -42,7 +42,7 @@ def run_view(result):
                           "environment": result["environment"], "identity": result.get("identity"),
                           "binary": result.get("binary"), "oracle": request["correctness"]}
     view["observations"] = run_observations(result)
-    for section in ('call_edges','allocation_sites','phases','phase_summaries','runtime_identities','sampling_profiles','thread_timelines'):
+    for section in ('call_edges','allocation_sites','phases','phase_summaries','runtime_identities','sampling_profiles','thread_timelines','scheduler_timelines'):
         view[section]=[{**row,'evidence_id':evidence_id(rid,row['evidence'])} for row in result.get(section,[])]
     for identity in view['runtime_identities']:
         if identity['evidence_state']!='Measured' or identity['truncations'] or identity['acceptance']['status'] not in ('PASS','NOT_REQUESTED'):
@@ -249,13 +249,14 @@ def build_view(store, identifier, kind="run"):
                 source=run_view(run)
                 member=next(m for m in record['runs'] if m['run_id']==rid)
                 case_id=member['case_id'] if record['spec']['analysis']=='assessment' else member['sample_id']
-                for section in ('metrics','phases','phase_summaries','hotspots','quality','observations','call_edges','allocation_sites','facts','hypotheses','runtime_identities','sampling_profiles','thread_timelines'):
+                for section in ('metrics','phases','phase_summaries','hotspots','quality','observations','call_edges','allocation_sites','facts','hypotheses','runtime_identities','sampling_profiles','thread_timelines','scheduler_timelines'):
                     view[section].extend({**v,'run_id':rid,'case_id':case_id,'variant':member['variant'],**({'profile_id':member['profile_id']} if 'profile_id' in member else {})} for v in source[section])
             else:
                 view['phase_summaries'].extend({**row,'run_id':rid,'evidence_id':evidence_id(rid,row['evidence'])} for row in run.get('phase_summaries',[]))
                 view['runtime_identities'].extend({**row,'run_id':rid,'evidence_id':evidence_id(rid,row['evidence'])} for row in run.get('runtime_identities',[]))
                 view['sampling_profiles'].extend({**row,'run_id':rid,'evidence_id':evidence_id(rid,row['evidence'])} for row in run.get('sampling_profiles',[]))
                 view['thread_timelines'].extend({**row,'run_id':rid,'evidence_id':evidence_id(rid,row['evidence'])} for row in run.get('thread_timelines',[]))
+                view['scheduler_timelines'].extend({**row,'run_id':rid,'evidence_id':evidence_id(rid,row['evidence'])} for row in run.get('scheduler_timelines',[]))
             view["evidence"].extend({**item, "id": evidence_id(rid, item["path"]), "run_id": rid}
                                     for item in run.get("evidence", []))
         from .run_notes import notes
@@ -279,7 +280,7 @@ def summary_view(store, record):
     for run in runs:
         source = run_view(run)
         view['metrics'].extend({**group, 'run_id': run['run_id']} for group in source['metrics'])
-        for section in ('hotspots', 'quality', 'evidence', 'facts', 'hypotheses', 'observations', 'call_edges', 'allocation_sites', 'phases', 'phase_summaries', 'runtime_identities', 'sampling_profiles', 'thread_timelines'):
+        for section in ('hotspots', 'quality', 'evidence', 'facts', 'hypotheses', 'observations', 'call_edges', 'allocation_sites', 'phases', 'phase_summaries', 'runtime_identities', 'sampling_profiles', 'thread_timelines', 'scheduler_timelines'):
             view[section].extend({**item, 'run_id': run['run_id']} for item in source[section])
         view['limitations'].extend(source['limitations'])
     view['comparisons'] = comparisons

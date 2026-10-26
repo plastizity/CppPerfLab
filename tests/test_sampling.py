@@ -138,7 +138,8 @@ class SamplingTests(unittest.TestCase):
     def test_options_validate_explicit_modes_and_thresholds(self):
         adapter=REGISTRY['perf-record']
         adapter.validate(dict(frequency=99,sample_trace=True,call_graph='fp',symbolizer='addr2line',precheck=POLICY))
-        for options in (dict(symbolizer='addr2line'),dict(call_graph='automatic'),dict(sample_trace=True,precheck=dict(POLICY,min_samples=0))):
+        for options in (dict(symbolizer='addr2line'),dict(call_graph='automatic'),dict(sample_trace=True,precheck=dict(POLICY,min_samples=0)),
+                        dict(switch_events=True),dict(sample_trace=True,switch_events='yes')):
             with self.assertRaises(LabError):adapter.validate(options)
 
     def test_sampling_schema_names_match_emitted_protocol_and_keep_provenance_states(self):
@@ -154,7 +155,7 @@ class SamplingTests(unittest.TestCase):
         self.assertEqual(definitions['samplingClock']['properties']['monotonic_offset_ns']['const'],0)
         self.assertIn('after_capture_monotonic_ns',definitions['samplingClock']['required'])
         self.assertEqual(definitions['hotspot']['properties']['sample']['type'],['integer','null'])
-        self.assertEqual(len(definitions['options']['allOf']),2)
+        self.assertEqual(len(definitions['options']['allOf']),3)
 
     def test_clock_context_rejects_nonzero_monotonic_namespace_offset(self):
         from pathlib import Path

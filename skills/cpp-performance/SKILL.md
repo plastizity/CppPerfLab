@@ -119,6 +119,11 @@ For per-thread application work/wait timelines, read
 [thread activity evidence](references/thread-activity.md). These are application
 wall annotations and do not establish OS running/off-CPU time or wait cause.
 
+When Linux perf switch records are available, use
+[OS switch timelines](references/scheduler-timeline.md) for bounded per-thread
+on/off-CPU intervals. These records do not show wakeups, runqueue delay or the
+cause of an off-CPU interval.
+
 For live run state, opt-in progress, build identity and candidate disposition,
 read [run status and candidate history](references/run-status.md). Process liveness
 is identity checked; reported stage ETA is limited to observed same-run measurement

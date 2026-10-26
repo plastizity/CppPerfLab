@@ -151,6 +151,48 @@ def thread_activity_section(view):
     return ''.join(content)
 
 
+def scheduler_section(view):
+    content=['<p class="notice">Linux perf context-switch records provide intervals only between recorded switch boundaries. Capture edges are censored. They do not report wakeups, runqueue delay, blocking cause or lock contention; per-thread durations are not process utilization.</p>']
+    for item in view['scheduler_timelines']:
+        content.append('<h3>'+esc(item.get('run_id',view['record_id']))+' / '+esc(item['execution_stage'])+' / '+esc(item.get('measurement_group'))+'</h3>')
+        content.append('<p>调度证据状态：'+esc(item['evidence_state'])+'。表内时长只累计闭合的 switch 区间，采集前后均删失。</p>')
+        content.append(table(['PID:TID / generation','切换事件数','闭合区间','on-CPU 秒','off-CPU 秒','边界','证据状态'],[
+            [esc(str(t['pid'])+':'+str(t['tid'])+' / '+str(t['generation'])),esc(t['switch_event_count']),
+             esc(t['closed_interval_count']),number(t['on_cpu_seconds']),number(t['off_cpu_seconds']),
+             esc('采集边界删失' if t['left_censored'] and t['right_censored'] else '见轨道证据'),esc(item['evidence_state'])]
+            for t in item['tracks']]))
+        content.append(details('OS 调度证据、问题与来源',item))
+    for selection in view.get('scheduler_queries',[]):
+        page=selection['interval_page']
+        content.append('<p>查询状态：'+esc(selection['evidence_state'])+' / '+esc(selection['selection_status'])+
+            '。'+esc(selection.get('reason') or '读取所选事件页。')+'；显示所选分页，不代表完整线程生命周期。'+
+            (' 后续区间仍未显示。' if page['truncated'] else '')+'</p>')
+        content.append('<h3>已选区间 '+esc(page['offset'])+'..'+esc(page['offset']+page['returned'])+' / '+esc(page['total'])+'</h3>')
+        rows=selection['intervals']
+        if rows:
+            start=min(row['start_ns'] for row in rows);end=max(row['end_ns'] for row in rows)
+            if end>start:
+                content.append('<p>共同时间轴只覆盖当前页。蓝色表示 on-CPU 区间，橙色表示 off-CPU 区间；边界仍有删失。</p>')
+                colors={'on_cpu':'#62b5ff','off_cpu':'#ffa868'}
+                grouped={}
+                for row in rows:grouped.setdefault(row['track_id'],[]).append(row)
+                for track_id,track_rows in grouped.items():
+                    bars=[]
+                    for row in track_rows:
+                        left=100*(row['start_ns']-start)/(end-start)
+                        width=100*(row['end_ns']-row['start_ns'])/(end-start)
+                        title=row['state']+' / '+str(row['start_ns'])+'..'+str(row['end_ns'])+' ns / events '+str(row['start_line'])+'..'+str(row['end_line'])
+                        bars.append('<span title="'+esc(title)+'" style="position:absolute;top:0;height:20px;left:'+format(left,'.9g')+
+                            '%;width:'+format(width,'.9g')+'%;background:'+colors[row['state']]+'"></span>')
+                    content.append('<div>'+esc(track_id)+'</div><div style="position:relative;height:20px;background:#f5f5f5;border:1px solid #bbb">'+''.join(bars)+'</div>')
+        content.append(table(['PID:TID / generation','CPU 状态','开始 ns','结束 ns','持续 ns','原始事件行'],[
+            [esc(row['track_id']),esc(row['state']),esc(row['start_ns']),esc(row['end_ns']),
+             esc(row['duration_ns']),esc(str(row['start_line'])+'..'+str(row['end_line']))]
+            for row in rows]))
+        content.append(details('当前页调度区间来源',selection))
+    return ''.join(content)
+
+
 def phase_summary_section(view):
     notice='<p class="notice">阶段汇总保留包含耗时、自身耗时和调用次数的原始口径。父子包含耗时不能重复相加；缺失不是零。只有汇总日志时不生成时间线或未覆盖时间。</p>'
     rows=[]
@@ -379,6 +421,8 @@ def render_html(view, store, output):
         sections.append(('phase-summaries','映射后的阶段汇总',phase_summary_section(view)))
     if view['thread_timelines']:
         sections.append(('thread-activity','线程应用活动时间线',thread_activity_section(view)))
+    if view.get('scheduler_timelines') or view.get('scheduler_queries'):
+        sections.append(('scheduler','OS 线程切换时间线',scheduler_section(view)))
     if view['view_kind'] == 'study':
         if view['overview'].get('analysis')=='assessment':
             sections.append(('assessment','联合性能评估',assessment_section(view)))

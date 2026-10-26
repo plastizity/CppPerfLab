@@ -65,3 +65,8 @@ attribution is `Estimated` and retains the ELF/helper evidence used.
 
 For the complete field definitions, output evidence and limitations, read
 [`docs/sampling-interpretability.md`](../../../docs/sampling-interpretability.md).
+
+The optional `switch_events: true` perf-record option additionally records real
+per-task context-switch boundaries in the same target launch. It requires
+`sample_trace: true`; selection, clocks, censored intervals and CLI queries are
+documented in [`scheduler-timeline.md`](../../../docs/scheduler-timeline.md).

@@ -272,6 +272,11 @@
         "type": "object"
       }
     },
+    "scheduler_timelines": {
+      "type": "array",
+      "items": {"type": "object"},
+      "description": "Read-only OS context-switch timelines; detail is queried from archived interval JSONL."
+    },
     "cpu_selection": {
       "type": "object"
     },

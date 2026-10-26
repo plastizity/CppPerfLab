@@ -181,6 +181,15 @@ def archive_sampling_profile(result,profile,folder,directory,stage,group):
         evidence=str(prefix/'sampling-profile.json'),samples_evidence=str(prefix/profile['samples_evidence']),native_evidence=str(prefix/profile['native_evidence'])))
 
 
+def archive_scheduler_profile(result,profile,folder,directory,stage,group):
+    import copy
+    entry=copy.deepcopy(profile);prefix=folder.relative_to(directory)
+    for key in ('native_evidence','events_evidence','intervals_evidence'):
+        entry[key]=str(prefix/entry[key])
+    result.setdefault('scheduler_timelines',[]).append(dict(entry,execution_stage=stage,measurement_group=group,
+        evidence=str(prefix/'scheduler-profile.json')))
+
+
 def run(request, store):
     workflow_started=time.monotonic_ns()
     identifier, directory = store.create()
@@ -299,6 +308,8 @@ def run(request, store):
                     result['sampling_precheck']['evidence']='preflight/sampling-precheck.json'
                     result['sampling_precheck']['profile_evidence']='preflight/sampling-profile.json'
                     archive_sampling_profile(result,profile,folder,directory,'preflight',None)
+                    if 'scheduler_profile' in parsed:
+                        archive_scheduler_profile(result,parsed['scheduler_profile'],folder,directory,'preflight',None)
                     write_json(folder/'sampling-precheck.json',result['sampling_precheck'])
                     if result['sampling_precheck']['status']!='PASS':
                         raise LabError('incomparable','Target sampling interpretability precheck did not pass',
@@ -378,6 +389,8 @@ def run(request, store):
                 write_json(folder/'normalized.json',parsed)
             if 'sampling_profile' in parsed:
                 archive_sampling_profile(result,parsed['sampling_profile'],folder,directory,'measurement',index)
+            if 'scheduler_profile' in parsed:
+                archive_scheduler_profile(result,parsed['scheduler_profile'],folder,directory,'measurement',index)
             if "library_version" in parsed:
                 result["tool"]["version"] = parsed["library_version"]
             if "sample_count" in parsed:

@@ -7,6 +7,12 @@ exact function duration, or operation counts.
 
 ## Readiness and collection
 
+For OS thread intervals, `perf-record` also accepts
+`options.switch_events: true` when `sample_trace: true`. This records context
+switch boundaries into the same `perf.data` and parses them after the target; it
+does not add a target launch. Read [the scheduler timeline contract](scheduler-timeline.md)
+for the separate on/off-CPU evidence and its limits.
+
 Before choosing sampling, inspect the actual tool probe and plan. Optional static
 readiness examines the selected call graph mode, the target ELF's debug/symbol
 sections, native perf support, and explicitly selected symbolization helpers. It

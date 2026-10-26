@@ -19,5 +19,8 @@ sampling=copy.deepcopy(request);sampling['name']='synthetic-two-thread-activity-
 sampling['measurement'].update(tool='perf-record',repetitions=1,options=dict(frequency=199,call_graph='fp',sample_trace=True,symbolizer='addr2line',
     precheck=dict(min_samples=5,min_resolved_self_fraction=.7,min_resolved_stack_fraction=0,require_phase_clock=True)))
 sampling['goal']['metrics']=['cpu.hotspots','phase.application_wait_wall']
-for name,value in [('thread-activity',request),('thread-activity-sampling',sampling)]:
+scheduler=copy.deepcopy(sampling);scheduler['name']='synthetic-thread-os-context-switches'
+scheduler['measurement']['options']=dict(frequency=99,call_graph='none',sample_trace=True,switch_events=True,
+    precheck=dict(min_samples=5,min_resolved_self_fraction=0,min_resolved_stack_fraction=0,require_phase_clock=True))
+for name,value in [('thread-activity',request),('thread-activity-sampling',sampling),('thread-scheduler',scheduler)]:
     path=out/(name+'.json');path.write_text(json.dumps(value,indent=2)+'\n');print(path)

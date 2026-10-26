@@ -68,11 +68,13 @@ def execution_budget(request):
         sampling_budget=None
         if trace:
             launches=measurement_groups+int(precheck)
-            sampling_budget=dict(profiled_launches=launches,additional_target_launches=0,known_perf_postprocessing_commands=3*launches,
+            postprocessing_per_launch=3+int(config['options'].get('switch_events',False))
+            sampling_budget=dict(profiled_launches=launches,additional_target_launches=0,known_perf_postprocessing_commands=postprocessing_per_launch*launches,
+                switch_events=config['options'].get('switch_events',False),
                 symbolization_commands=None if config['options'].get('symbolizer','perf')=='addr2line' else 0,
                 target_preflight_profiled=precheck,static_target_inspection='ELF metadata only; target not executed')
-            stages[6].update(commands=None,maximum_commands=None,known_perf_commands=3*launches,
-                meaning='perf report/script/evlist per profile; explicit addr2line/readelf work depends on observed DSOs and addresses')
+            stages[6].update(commands=None,maximum_commands=None,known_perf_commands=postprocessing_per_launch*launches,
+                meaning='perf report/script/evlist and optional switch-script per profile; explicit addr2line/readelf work depends on observed DSOs and addresses')
         phase_import_budget=None if 'phase_import' not in config else dict(additional_target_launches=0,source=config['phase_import']['source'],
             conversions=preflight+measurement_groups,mapping_sha256=config['phase_import']['mapping_sha256'],
             cost='Deterministic parsing/hashing after existing launches; log byte count unknown; excluded from target tool timing')

@@ -44,9 +44,12 @@ def parser():
             q.add_argument('--expected-sha256',help='Optional expected SHA-256 of the raw source log')
         if name=='timeline':
             q.add_argument('run_id')
+            q.add_argument('--source',choices=('application','scheduler'),default='application')
             q.add_argument('--stage',choices=('preflight','measurement'),default='measurement')
             q.add_argument('--measurement',type=int)
             q.add_argument('--track')
+            q.add_argument('--offset',type=int,default=0)
+            q.add_argument('--limit',type=int,default=1000)
             q.add_argument('--format',choices=('json','html'),default='json')
             q.add_argument('--output',type=Path)
         if name=='status':
@@ -142,7 +145,7 @@ def parser():
             q.add_argument("name")
             q.add_argument("run_id")
         if name == "schema":
-            q.add_argument("kind", choices=("request", "result", "envelope", "study", "analysis", "query", "tools", "summary", "metrics", "evidence", "policy", "solver", "solver-validation", "phases", "sample-manifest", "collection", "runtime-identity", "sampling", "run-status", "study-status", "activity-timeline", "phase-mapping", "phase-summary"))
+            q.add_argument("kind", choices=("request", "result", "envelope", "study", "analysis", "query", "tools", "summary", "metrics", "evidence", "policy", "solver", "solver-validation", "phases", "sample-manifest", "collection", "runtime-identity", "sampling", "run-status", "study-status", "activity-timeline", "phase-mapping", "phase-summary", "scheduler-timeline"))
     return p
 
 
@@ -177,6 +180,13 @@ def dispatch(args):
         if args.format != "html" and args.output is not None:
             raise LabError("invalid_request", "--output is supported for HTML export only")
     if args.command=='timeline':
+        if args.source=='scheduler':
+            from .scheduler_queries import query_scheduler
+            from .timeline_queries import scheduler_timeline_view
+            selected=query_scheduler(store,args.run_id,args.stage,args.measurement,args.track,args.offset,args.limit)
+            return export_html(scheduler_timeline_view(store,selected),store,args.output) if args.format=='html' else selected
+        if args.offset or args.limit!=1000:
+            raise LabError('invalid_request','--offset and --limit apply only to scheduler timelines')
         from .timeline_queries import query_timeline,timeline_view
         selected=query_timeline(store,args.run_id,args.stage,args.measurement,args.track)
         return export_html(timeline_view(store,selected),store,args.output) if args.format=='html' else selected

@@ -76,6 +76,11 @@ class BudgetTests(unittest.TestCase):
         self.assertEqual(with_sampling['known_target_computation_runs'],without['known_target_computation_runs'])
         self.assertEqual(with_sampling['sampling']['profiled_launches'],sampled['measurement']['repetitions']+1)
         self.assertEqual(with_sampling['sampling']['additional_target_launches'],0)
+        sampled['measurement']['options']['switch_events']=True
+        with_switches=self.candidate(sampled)
+        self.assertEqual(with_switches['known_target_computation_runs'],without['known_target_computation_runs'])
+        self.assertEqual(with_switches['sampling']['known_perf_postprocessing_commands'],
+                         4*(sampled['measurement']['repetitions']+1))
 
 
 

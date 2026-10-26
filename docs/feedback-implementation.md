@@ -26,7 +26,7 @@
 | F08 | P0 | 一份报告并列局部、模型/阶段、全过程、实际工作量、数值约束和内存代价；工作量改变不得自动归为单步优化 | 已实现并真实验证 assessment Study 组合现有 paired/cases；预声明 case、profile、角色和验收门，固定声明的输入/版本指纹，复用 Comparison 并分别显示联合验收与全过程加速。真实同程序对照 16 次 run/28 个样本，以及错误参考首个预检即停均已验证；不宣称加速。见 joint-assessment.md |
 | F09 | P1 | 实际执行文件与动态库身份，包括加载观察范围和缺失/权限限制；不能用静态 RPATH/ldd 推断实际加载 | 已实现并真实验证可选 preflight/measurement 进程树 proc 快照、实际 executor/映射文件、稳定文件哈希和显式路径/哈希门；同字节复制程序加载旧库时，输出正确但身份 FAIL，正式样本为零。dlopen、预检范围区别及比较控制均已验证。周期观测不保证完整加载历史；见 runtime-identity.md |
 | F10 | P1 | 采样前目标符号/栈可解释性检查；按阶段/调用筛选且明确分母、自身/包含占比和未解析比例 | 已实现并真实验证静态 readiness、复用已有 preflight 的样本/符号/部分栈门、显式 CLOCK_MONOTONIC/ns/零偏移关联、原始 trace 和 ELF 身份绑定的 addr2line 归属、CLI 阶段/调用/输入/线程筛选及 HTML 分母。可解析样例、剥离符号预检失败且零正式样本、工具能力不足且零目标执行均已验证；完整栈及 off-CPU 等待不在此能力内。见 sampling-interpretability.md |
-| F11 | P1 | 线程运行/等待时间线，区分串行、任务不足、同步；无 off-CPU/事件证据不得推断精确等待 | 已实现并真实验证应用层显式工作/等待区间、多线程 SDK 轨道合并、CLI/HTML 时间线及同源 CPU 采样交叉查询；等待原因由生产者标注，不能当 OS/off-CPU 根因。当前调度事件探测 Unsupported；OS 级时间线采集/归因仍未实现，运行级 OS 数据为 Missing。见 thread-activity.md |
+| F11 | P1 | 线程运行/等待时间线，区分串行、任务不足、同步；无 off-CPU/事件证据不得推断精确等待 | 应用层显式工作/等待区间、多线程 SDK 轨道合并、CLI/HTML 和同源 CPU 采样查询已真实验证。新增 `perf-record switch_events` 已真实端到端验证：Run `20261026T091438-fadc9647ae06`，preflight 139 个切换事件，正式测量 21 个事件、2 条线程轨道；查询、分页、过滤、HTML、原始及归档证据均成功。只有一次正式测量，证明接口与采集可用，不证明稳定性或加速。所测只是在记录线程中有双边界的 on/off-CPU 区间；不推断唤醒、运行队列延迟或阻塞原因。tracefs sched tracepoint 路径仍 Unsupported。见 scheduler-timeline.md |
 | F12 | P1 | 统一进程/进度/有依据的 ETA、构建身份、候选保留/撤回和结果替代关系；原证据不覆盖、不自动删产物 | 已实现并真实验证 run 级 status/history、可选既有 result 阶段更新、PID/start ticks/boot/ns 存活核验、当前工件指纹核验、版本冲突即停的追加候选记录及后续结果替代。CLI/HTML/Skill 均接通；取消/超时清理和高开销预算拒绝已有真实证据。阶段 ETA 与全过程 ETA 分开；后者至少需要两条请求、工具、平台实现、输入及环境身份相符且正确性通过的完整历史记录，估计为 Estimated，过期或证据不足为 Missing，时钟上下文不可核验为 Unsupported。新记录关闭持续进度也可核实 owner 并查询全过程 ETA，旧记录不补造身份。开启/关闭进度不可混做性能比较。见 run-status.md |
 
 ## 依赖与继续顺序
@@ -52,6 +52,8 @@ F12 已补充规模/强扩展、paired、cases、assessment 的创建时父子�
 后续优先推进缺失功能；验证以改动直接相关的检查和必要真实接口为限，
 已有检查通过后不无故扩展或重复测试。
 
-按使用方最新优先级，先完成反馈闭环，不继续扩展独立函数/类框架。当前保留
-的限制是 OS 级调度时间线、受串行实验约束的同步竞争双跑，以及 Study 或缺少
-匹配历史时的全过程 ETA；这些限制不能被应用标注、Missing 或一般 PASS 掩盖。
+按使用方最新优先级，先完成反馈闭环，不继续扩展独立函数/类框架。已验证
+`perf-record` switch-event 的 OS on/off-CPU 时间线。尚无 wakeup 事件，不能计算
+准确 runnable 队列等待或归因锁/阻塞原因。同步竞争双跑与项目串行测量约束冲突，
+当前保持未实现。Study 全过程 ETA 属于额外扩展；Run ETA 已实现，但仍需匹配历史，
+没有足够证据时返回 Missing，不跨异构 Study 猜测。

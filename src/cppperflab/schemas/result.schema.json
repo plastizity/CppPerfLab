@@ -654,6 +654,11 @@
         "type": "object"
       }
     },
+    "scheduler_timelines": {
+      "type": "array",
+      "items": {"type": "object"},
+      "description": "Optional versioned profiles following scheduler-timeline.schema.json; absent means no such profile was requested or archived."
+    },
     "sampling_precheck": {
       "type": "object"
     },

@@ -13,6 +13,7 @@
         "call_graph": {"enum": ["dwarf", "fp", "none"]},
         "symbolizer": {"enum": ["perf", "addr2line"]},
         "sample_trace": {"type": "boolean"},
+        "switch_events": {"type": "boolean"},
         "precheck": {"$ref": "#/$defs/precheckPolicy"}
       },
       "additionalProperties": false,
@@ -23,6 +24,10 @@
         },
         {
           "if": {"required": ["precheck"]},
+          "then": {"required": ["sample_trace"], "properties": {"sample_trace": {"const": true}}}
+        },
+        {
+          "if": {"required": ["switch_events"], "properties": {"switch_events": {"const": true}}},
           "then": {"required": ["sample_trace"], "properties": {"sample_trace": {"const": true}}}
         }
       ]

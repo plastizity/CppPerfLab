@@ -58,12 +58,25 @@ unclassified.
 The activity intervals measure application wall-clock scopes. A thread inside a
 work scope may be preempted; a wait scope may include wake-up and scheduling delay.
 Neither label establishes exact CPU-running time, off-CPU time, runnable delay,
-context switches, or scheduler cause. `os_scheduler.evidence_state` is therefore
-`Missing` in each timeline because no OS scheduler trace was collected. This does
-not by itself say whether the host has a usable trace facility: environment
+context switches, or scheduler cause. `os_scheduler.evidence_state` in this
+application timeline remains `Missing` because phase records do not include OS
+events. The separate scheduler query may contain context-switch records. Environment
 capability discovery reports `scheduling_tracepoints` separately as
-`Unsupported` or `Missing`. The current activity feature collects application
-annotations only; it does not claim to implement a kernel scheduler collector.
+`Unsupported` or `Missing`; that field describes tracepoint access, not the perf
+switch-record path. Application annotations describe producer-marked
+scopes; they are independent from the optional OS timeline. On Linux, the existing
+`perf-record` Adapter can record perf `PERF_RECORD_SWITCH` events in the same
+profiled launch. Query them separately with
+`perflab timeline RUN_ID --source scheduler --measurement 0 --json`; the full
+protocol, configuration and output fields are in
+[`scheduler-timeline.md`](scheduler-timeline.md). They establish only closed,
+paired on/off-CPU intervals for observed thread lifetimes. They do not include
+wakeup events, runnable queue delay or a reason for the off-CPU interval. Tracefs
+`sched_switch` tracepoint collection remains unavailable here and is not needed for
+this perf switch-record path. The native ABI and one real target run are verified;
+that single run validates collection and query interfaces, not stable behavior,
+performance improvement or scheduling cause. Its Run ID is
+`20261026T091438-fadc9647ae06`.
 Do not infer lock contention or task scheduling root cause from wait labels alone;
 design a discriminating experiment.
 
