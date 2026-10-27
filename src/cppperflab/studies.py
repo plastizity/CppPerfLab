@@ -53,6 +53,10 @@ def fit_growth(points):
     if any(any(k in p for k in semantic_keys) for p in points):
         require(all(all(k in p for k in semantic_keys) for p in points), 'Missing growth metric semantics')
         require(len({tuple(p[k] for k in semantic_keys) for p in points})==1, 'Mixed growth metric semantics')
+    from .perf_events import METRIC_SELECTORS, DESCRIPTOR_FIELDS
+    if any(p.get('name') in METRIC_SELECTORS for p in points):
+        require(all(all(k in p for k in DESCRIPTOR_FIELDS) for p in points), 'Missing growth event descriptor')
+        require(len({tuple(p[k] for k in DESCRIPTOR_FIELDS) for p in points})==1, 'Mixed growth event descriptor semantics')
     require(all(p.get('evidence_state','Measured')=='Measured' for p in points), 'Growth requires measured input points')
     ys = [p["median"] for p in points]
     require(all(math.isfinite(y) and y > 0 for y in ys), "Growth fitting requires positive finite measurements")

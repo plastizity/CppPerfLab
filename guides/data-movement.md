@@ -23,6 +23,100 @@ perflab tools probe --tool perf-stat --events instructions,cache-references,cach
 更早的探测 `20261027T032735-e75ee759ba17` 因解析未预期的 `:u` 后缀失败，
 该失败记录仍保留。探测只证明当时的探测条件，不保证其他机器或后续运行可用。
 
+## 分层缓存与数据 TLB 原始事件
+
+可通过相同的 `perf-stat` 事件配置申请六项 Linux 通用缓存事件；这些是原始
+计数，不新增层级 miss ratio，也不会把原有 `cpu.cache_misses` 改称 LLC miss。
+
+| Metric ID | perf selector | 请求的事件 |
+|---|---|---|
+| `cpu.l1d_loads` | `L1-dcache-loads` | L1 数据缓存读访问 |
+| `cpu.l1d_load_misses` | `L1-dcache-load-misses` | L1 数据缓存读未命中 |
+| `cpu.llc_loads` | `LLC-loads` | 最后一级缓存读访问 |
+| `cpu.llc_load_misses` | `LLC-load-misses` | 最后一级缓存读未命中 |
+| `cpu.dtlb_loads` | `dTLB-loads` | 数据 TLB 读访问 |
+| `cpu.dtlb_load_misses` | `dTLB-load-misses` | 数据 TLB 读未命中 |
+
+例如，先针对目标机器探测 L1 读事件及其强组，再在 request 的
+`measurement.options.events` 和 `event_groups` 中采用同一 selector 列表：
+
+```bash
+perflab schema event-descriptor --json
+perflab metrics --metric cpu.l1d_load_misses --json
+perflab tools probe --tool perf-stat --events L1-dcache-loads,L1-dcache-load-misses --event-group L1-dcache-loads,L1-dcache-load-misses --json
+```
+
+其他两层同样需分别实际探测。静态 Registry 的 `event_descriptor` 描述的是
+Linux 请求语义，并不保证该 CPU、内核、虚拟机或权限支持事件，也不保证请求
+名称在不同平台统计相同的硬件事件。实际 probe 和 Run 保存
+`event-descriptors.json`，记录可见的 CPU 身份、微码、内核、perf 版本、PMU
+type/format 和实测 selector 的过滤条件（如 `:u`）；不可读取的信息标为 Missing。
+各新指标样本携带 descriptor ID、版本与语义 key。比较、Claim、摘要和算法拟合
+需要一致的事件语义与上下文；旧的通用缓存指标及 IPC 不要求补造这些描述符。
+
+Linux `PERF_TYPE_HW_CACHE` 的 ABI type 是 3，config 编码表示请求的缓存、读
+操作与访问/未命中类型；它不是 sysfs 中某个实际 PMU 的 type（例如 4），不能
+据此猜测厂商事件码。当前平台无法取得内核翻译到物理 PMU 的映射时，将该
+映射标为 Missing；这不等于已经成功采得的原始计数是 Unsupported。详细定义
+见 [Linux perf UAPI](https://raw.githubusercontent.com/torvalds/linux/master/include/uapi/linux/perf_event.h)
+和 [perf_event_open 手册](https://man7.org/linux/man-pages/man2/perf_event_open.2.html)。
+
+本次 WSL2 guest 实际完成六个单事件和三个双事件强组探测：L1D 和 dTLB 的四个
+单事件、两个强组可用；LLC 的两个单事件和强组原始 perf 报告 `ENODEV`，不支持。
+早期 probe 的 `parse_failed` 分类作为历史原样保留；补充更准确的 Unsupported
+原因后，正式 LLC Run `20261027T043550-4e9030bf80ce` 在预检前拒绝，正式样本
+为零。原始记录见 `.perflab/validations/dme-p1-20261027/probes.json`。本结果
+只适用于当次 guest 环境，不是原生 Linux 硬件资格认证。
+
+## 分层事件的配对实验配置
+
+先按下方合成示例生成配置，再复制已有的 `pointer-32768-counts` 模板，分别
+替换两侧 request 的事件和 Study 的比较指标。以下只生成配置，不执行目标：
+
+```bash
+python3.11 - <<'PY'
+import json
+from pathlib import Path
+out = Path('workloads/dme').resolve()
+source = 'pointer-32768-counts'
+for label, events, primary in [
+    ('l1', ['L1-dcache-loads', 'L1-dcache-load-misses'], 'cpu.l1d_load_misses'),
+    ('dtlb', ['dTLB-loads', 'dTLB-load-misses'], 'cpu.dtlb_load_misses'),
+]:
+    study = json.loads((out / (source + '.study.json')).read_text())
+    for side in ('baseline', 'candidate'):
+        request = json.loads((out / (source + '-' + side + '.request.json')).read_text())
+        request['measurement']['options'] = {'events': events, 'event_groups': [events]}
+        path = out / ('p1-' + label + '-' + side + '.request.json')
+        path.write_text(json.dumps(request, indent=2) + '\n')
+        study[side] = str(path)
+    study['name'] = 'p1-' + label
+    study['metric'] = primary
+    study['secondary_metrics'] = [entry for entry in study['secondary_metrics'] if entry['metric'] == 'work.items']
+    (out / ('p1-' + label + '.study.json')).write_text(json.dumps(study, indent=2) + '\n')
+PY
+perflab budget --kind study --config workloads/dme/p1-l1.study.json --json
+perflab study --config workloads/dme/p1-l1.study.json --json
+```
+
+按需要将末尾的 `p1-l1` 替换为 `p1-dtlb`；先逐组探测及查看预算。每个
+Study 独立采集，不能把不同 profile 的事件当作同一样本配对。若目标无法
+收集某组，保留 Unsupported 及原始诊断；不自动替换其他事件。示例配置阈值
+只用于演示，正式对照须预先决定适用门槛。
+
+本轮真实合成实验分别完成 native `20261027T043522-ac3ca6a488a0`、L1D
+`20261027T043530-c14cb4f4c9cb` 和 dTLB `20261027T043541-23c755f2e0c4`
+三个独立配对 Study，每组 3 个 ABBA 区块、12 个 Run，共 36 个正式样本；
+证据及完整配置见 `.perflab/validations/dme-p1-20261027/verification.json`
+和同目录 `configs/`。可采得的原始计数为 Measured，物理 PMU 映射仍为
+Missing。三个区块只用于接口验证，不据此宣称稳定收益或因果关系。
+
+另一次显式 `runtime_identity` measurement 观察 Run
+`20261027T043551-18722671e171` 记录 38 个目标快照、8 个映射对象；期望
+对象门为 `NOT_REQUESTED`。它不证明所有库从启动时已加载，也不能补造先前
+实验的加载记录；观察本身的扰动未量化。详见
+[实际加载身份](runtime-identity.md)。
+
 ## 配置工作量报告
 
 以下是现有 request 的 `measurement` 片段，不是可直接运行的完整 request：

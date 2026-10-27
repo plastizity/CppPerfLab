@@ -168,14 +168,19 @@ def validated_samples(a, b, metric_name="time.wall", allow_command_change=False,
         verdict = "UNSUPPORTED" if "Unsupported" in states else "INCONCLUSIVE"
         raise LabError("incomparable", "Acceptance requires measured evidence",
                        {"acceptance":{"status":verdict,"reason":"non-measured evidence"}, "evidence_states":states})
+    from .perf_events import descriptor_problem
+    if any(descriptor_problem(m) for values in collections for m in values):
+        raise LabError('incomparable','Event descriptor evidence is missing or incompatible',
+                       {'acceptance':{'status':'INCONCLUSIVE','reason':'Cache/TLB event descriptor required'}})
     if any(not values for values in collections):
         differences.append({"condition": "missing_metric", "metric": metric_name})
     else:
         meanings = [{(m["unit"], m["method"], m["scope"], m.get("event", ""),
-                       tuple((v["name"],v["unit"],v["method"],v["scope"],v.get("event",""))
+                       tuple((v["name"],v["unit"],v["method"],v["scope"],v.get("event",""),v.get('event_semantics_key',''))
                              for v in (m.get("sources",[]) if isinstance(m.get("sources",[]),list) else [])),
                        m.get('source_counter',''), m.get('operation_count'), m.get('counter_contract',''),
-                       m.get('work_definition_id',''),m.get('work_unit','')) for m in values} for values in collections]
+                       m.get('work_definition_id',''),m.get('work_unit',''),m.get('event_descriptor_id',''),
+                       m.get('event_descriptor_version',0),m.get('event_semantics_key','')) for m in values} for values in collections]
         same("metric_semantics", sorted(meanings[0]), sorted(meanings[1]))
         if any(len(x) != 1 for x in meanings):
             differences.append({"condition": "mixed_metric_semantics"})

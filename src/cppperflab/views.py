@@ -100,6 +100,7 @@ def run_view(result):
     for summary in result["summary"]:
         matching = [(s["index"], m) for s in result["samples"] for m in s["metrics"]
                     if all(m[k] == summary[k] for k in ("name", "unit", "method", "scope"))
+                    and m.get('event_semantics_key') == summary.get('event_semantics_key')
                     and evidence_state(m)==summary.get("evidence_state", evidence_state(m))]
         view["metrics"].append({"summary": summary,
                                 "samples": [{"index": i, "value": m["value"], "evidence_state":evidence_state(m),

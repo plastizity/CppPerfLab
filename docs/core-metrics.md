@@ -62,6 +62,17 @@ the [data movement guide](../guides/data-movement.md); zero denominators are Mis
 These ratios remain diagnostic and do not pass the existing Measured-only comparison
 gate. Their generic cache events do not measure physical bytes or establish causation.
 
+The registry also exposes six Linux L1D, LLC and dTLB read-access/miss raw
+metrics and static event descriptors. Probe/Run collection records contextual
+`event-descriptors.json`; per-sample descriptor identity and semantics are
+required when comparing or aggregating these metrics. Unknown kernel-to-physical
+PMU translation is Missing, not an automatic Unsupported raw count. See
+[data movement diagnostics](../guides/data-movement.md) and
+`perflab schema event-descriptor --json`; this adds no layer-specific ratio and
+does not change the existing generic cache or IPC semantics.
+Real WSL2 guest probes and independent L1D/dTLB paired Studies are recorded in
+the guide; LLC returned `ENODEV`. Those results do not qualify native Linux PMUs.
+
 ## Policy and acceptance
 
 A policy file requires `schema_version: 1`, `min_samples` (integer >=2), `max_cv`

@@ -55,6 +55,21 @@ for name, domains in {
     'os.page_faults':['D10'], 'os.context_switches':['D09'],
 }.items():
     DEFINITIONS[name] = definition(name, domains, 'Diagnostic', 'count', 'sum of explicitly selected events', 'target process and inherited threads; event-specific')
+# Linux HW_CACHE aliases identify requested event semantics, not a promise of
+# universal microarchitectural event populations on every CPU/PMU.
+from .perf_events import CACHE_ALIASES, descriptor_definition
+for selector, descriptor in CACHE_ALIASES.items():
+    name = descriptor['metric_id']
+    domains = ['D05', 'D10'] if selector.startswith('dTLB-') else ['D05']
+    DEFINITIONS[name] = definition(name, domains, 'Diagnostic', 'count',
+        descriptor['description'], 'native target process and inherited threads; Linux PERF_TYPE_HW_CACHE alias')
+    DEFINITIONS[name]['event_descriptor'] = descriptor_definition(selector)
+    DEFINITIONS[name]['comparison_constraints'] += [
+        'same CPU, PMU, kernel, native capture context, event selector and filter',
+        'same resolved event semantics key; event population depends on CPU/kernel/PMU']
+    DEFINITIONS[name]['reliability'] = ('Raw alias count from a supported native PMU; actual event population depends on CPU, kernel and PMU. '
+        'LLC load misses do not represent all LLC misses or DRAM traffic.')
+
 for name, (num, den, factor, unit) in DERIVATIONS.items():
     DEFINITIONS[name] = definition(name, ['D06'] if name.startswith('cpu.') else ['D01'],
                                    'Efficiency' if name.startswith('cpu.') else 'Diagnostic', unit,

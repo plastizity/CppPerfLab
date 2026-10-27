@@ -133,16 +133,18 @@ def plan(request, store):
 
 def summarize(samples):
     from .metrics import evidence_state, NUMERIC_STATES
+    from .perf_events import DESCRIPTOR_FIELDS
     groups = {}
     for sample in samples:
         for item in sample["metrics"]:
             state = evidence_state(item)
             if state not in NUMERIC_STATES:
                 continue
-            key = (item["name"], item["unit"], item["method"], item["scope"], state)
+            descriptor = tuple(item.get(k) for k in DESCRIPTOR_FIELDS)
+            key = (item["name"], item["unit"], item["method"], item["scope"], state, descriptor)
             groups.setdefault(key, []).append(item["value"])
     summaries = []
-    for (name, unit, method, scope, state), values in groups.items():
+    for (name, unit, method, scope, state, descriptor), values in groups.items():
         mean = statistics.mean(values)
         sd = statistics.stdev(values) if len(values) > 1 else None
         median = statistics.median(values)
@@ -151,6 +153,7 @@ def summarize(samples):
                           "min": min(values), "max": max(values), "stdev": sd,
                           "cv": sd / mean if sd is not None and mean else None,
                           "mad": statistics.median(abs(v - median) for v in values)})
+        summaries[-1].update({key: value for key, value in zip(DESCRIPTOR_FIELDS, descriptor) if value is not None})
     return summaries
 
 
@@ -367,6 +370,7 @@ def run(request, store, *, measurement_hook=None):
                     command=adapter.prepare(target_argv,folder,config['options'],repetitions=1,warmups=0)
                     record=launch(command,folder,tool=True,execution_stage='preflight')
                     record['analysis_artifact_hashes']=result['identity']['artifacts']
+                    record['tool_version']=result['tool']['version']
                     parsed=adapter.parse(folder,config['options'],record)
                     clock=None
                     if 'phase_report' in config:
@@ -432,6 +436,7 @@ def run(request, store, *, measurement_hook=None):
                                           repetitions=config["repetitions"], warmups=config["warmups"])
                 record = launch(command, folder, tool=True,execution_stage="measurement",measurement_group=index)
                 record['analysis_artifact_hashes']=result['identity']['artifacts']
+                record['tool_version']=result['tool']['version']
                 if progress:progress.save('measurement_postprocessing')
                 try:
                     parsed = adapter.parse(folder, config["options"], record)
@@ -493,11 +498,15 @@ def run(request, store, *, measurement_hook=None):
                         item["evidence"] = str(folder.relative_to(directory) / item["evidence"])
                         if 'collection_evidence' in item:
                             item['collection_evidence'] = str(folder.relative_to(directory) / item['collection_evidence'])
+                        if 'event_descriptor_evidence' in item:
+                            item['event_descriptor_evidence'] = str(folder.relative_to(directory) / item['event_descriptor_evidence'])
                         item["tool"] = selected
                         item["tool_version"] = result["tool"]["version"]
                     result["samples"].append({"index": len(result["samples"]), "metrics": metrics})
                 for section in ('call_edges','allocation_sites','unavailable_observations'):
                     result.setdefault(section,[]).extend({**row, 'sample':index,
+                        **({'event_descriptor_evidence':str(folder.relative_to(directory)/row['event_descriptor_evidence'])}
+                           if 'event_descriptor_evidence' in row else {}),
                         'evidence':str(folder.relative_to(directory)/row['evidence'])} for row in parsed.get(section,[]))
                 result["hotspots"].extend({**h, "sample": index,
                                            "evidence": str(folder.relative_to(directory) / h["evidence"])} for h in parsed["hotspots"])
@@ -560,7 +569,9 @@ def run(request, store, *, measurement_hook=None):
         result["status"] = error.category if error.category in ("cancelled", "timeout") else "failed"
         result["error"] = error.as_dict()
         if error.details.get('unavailable_observations'):
-            result['unavailable_observations'] = [{**m, 'evidence':str(folder.relative_to(directory)/m['evidence'])}
+            result['unavailable_observations'] = [{**m, 'evidence':str(folder.relative_to(directory)/m['evidence']),
+                **({'event_descriptor_evidence':str(folder.relative_to(directory)/m['event_descriptor_evidence'])}
+                   if 'event_descriptor_evidence' in m else {})}
                                                 for m in error.details['unavailable_observations']]
     except OSError as error:
         result["status"] = "failed"

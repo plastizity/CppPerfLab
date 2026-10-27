@@ -1,0 +1,308 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cppperflab:event-descriptor:1",
+  "title": "Post-collection Linux generic cache event descriptors v1",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "context": {
+      "$ref": "#/$defs/context"
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/event"
+      },
+      "minItems": 1
+    }
+  },
+  "required": [
+    "schema_version",
+    "context",
+    "events"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "cell": {
+      "type": "object",
+      "properties": {
+        "evidence_state": {
+          "enum": [
+            "Measured",
+            "Missing"
+          ]
+        },
+        "value": {
+          "type": "string"
+        },
+        "values": {
+          "type": [
+            "array",
+            "object"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence_state"
+      ],
+      "additionalProperties": false
+    },
+    "abi": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": 3
+        },
+        "config": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cache": {
+          "enum": [
+            "L1D",
+            "LL",
+            "DTLB"
+          ]
+        },
+        "operation": {
+          "const": "read"
+        },
+        "result": {
+          "enum": [
+            "access",
+            "miss"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "config",
+        "cache",
+        "operation",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "physical": {
+      "type": "object",
+      "properties": {
+        "evidence_state": {
+          "const": "Missing"
+        },
+        "reason": {
+          "const": "kernel translation not exposed"
+        }
+      },
+      "required": [
+        "evidence_state",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "event": {
+      "type": "object",
+      "properties": {
+        "metric_id": {"type": "string", "minLength": 1},
+        "requested_selector": {
+          "type": "string",
+          "minLength": 1
+        },
+        "observed_selector": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "origin": {
+          "const": "linux_hw_cache_alias"
+        },
+        "linux_abi": {
+          "$ref": "#/$defs/abi"
+        },
+        "filters": {
+          "$ref": "#/$defs/cell"
+        },
+        "physical_mapping": {
+          "$ref": "#/$defs/physical"
+        },
+        "event_descriptor_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "event_descriptor_version": {
+          "const": 1
+        },
+        "event_semantics_key": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "metric_id",
+        "requested_selector",
+        "observed_selector",
+        "origin",
+        "linux_abi",
+        "filters",
+        "physical_mapping",
+        "event_descriptor_id",
+        "event_descriptor_version",
+        "event_semantics_key",
+        "evidence"
+      ],
+      "additionalProperties": false
+    },
+    "pmu": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/cell"
+        },
+        "caps": {
+          "$ref": "#/$defs/cell"
+        },
+        "format": {
+          "$ref": "#/$defs/cell"
+        },
+        "cpus": {
+          "$ref": "#/$defs/cell"
+        },
+        "cpumask": {
+          "$ref": "#/$defs/cell"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "caps",
+        "format",
+        "cpus",
+        "cpumask"
+      ],
+      "additionalProperties": false
+    },
+    "inventory": {
+      "type": "object",
+      "properties": {
+        "evidence_state": {
+          "enum": [
+            "Measured",
+            "Missing"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pmu"
+          }
+        }
+      },
+      "required": [
+        "evidence_state",
+        "candidates"
+      ],
+      "additionalProperties": false
+    },
+    "context": {
+      "type": "object",
+      "properties": {
+        "machine": {
+          "type": "string"
+        },
+        "kernel": {
+          "type": "string"
+        },
+        "perf_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "perf_version_state": {
+          "enum": [
+            "Measured",
+            "Missing"
+          ]
+        },
+        "cpuinfo_source": {
+          "$ref": "#/$defs/cell"
+        },
+        "cpu_identity": {
+          "type": "object",
+          "properties": {
+            "vendor": {
+              "$ref": "#/$defs/cell"
+            },
+            "family": {
+              "$ref": "#/$defs/cell"
+            },
+            "model": {
+              "$ref": "#/$defs/cell"
+            },
+            "stepping": {
+              "$ref": "#/$defs/cell"
+            },
+            "model_name": {
+              "$ref": "#/$defs/cell"
+            },
+            "microcode": {
+              "$ref": "#/$defs/cell"
+            }
+          },
+          "required": [
+            "vendor",
+            "family",
+            "model",
+            "stepping",
+            "model_name",
+            "microcode"
+          ],
+          "additionalProperties": false
+        },
+        "pmu_inventory": {
+          "$ref": "#/$defs/inventory"
+        },
+        "cpuinfo_evidence": {
+          "const": "cpuinfo-context.txt"
+        },
+        "pmu_inventory_evidence": {
+          "const": "pmu-inventory.json"
+        },
+        "capture_note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "machine",
+        "kernel",
+        "perf_version",
+        "perf_version_state",
+        "cpuinfo_source",
+        "cpu_identity",
+        "pmu_inventory",
+        "cpuinfo_evidence",
+        "pmu_inventory_evidence",
+        "capture_note"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -18,6 +18,7 @@ from .execution import execute, check_execution
 from .protocol import metric, require
 from .tool_config import configured_tool
 from .valgrind_profiles import parse_cachegrind, parse_dhat, parse_callgrind, CACHE_EVENTS, CACHE_RATIOS, DHAT_FIELDS
+from .perf_events import CACHE_ALIASES, attach_descriptors, descriptor_definition
 
 
 EVENTS = {
@@ -32,6 +33,8 @@ EVENTS = {
     "page-faults": ("os.page_faults", "count", "software-counter"),
     "context-switches": ("os.context_switches", "count", "software-counter"),
 }
+EVENTS.update({selector: (spec['metric_id'], 'count', 'hardware-counter')
+               for selector, spec in CACHE_ALIASES.items()})
 
 
 def find_tool(name):
@@ -138,6 +141,7 @@ def parse_google_benchmark(path, counters=None, stage=None):
 def parse_stat(path, events, event_groups=None):
     metrics, unavailable = [], []
     seen = set()
+    raw_events = {}
     groups = {event: (f'group-{index}', group) for index, group in enumerate(event_groups or []) for event in group}
     for row in csv.reader(Path(path).read_text().splitlines(), delimiter=";"):
         if not row or row[0].startswith("#") or len(row) < 5:
@@ -148,6 +152,7 @@ def parse_stat(path, events, event_groups=None):
         if event in seen:
             raise LabError("parse_failed", "Duplicate perf event: " + event)
         seen.add(event)
+        raw_events[event] = row[2].strip()
         value = row[0].strip()
         if value.startswith("<"):
             unavailable.append({"event": event, "reason": value})
@@ -199,8 +204,17 @@ def parse_stat(path, events, event_groups=None):
             item['event_group_status'] = status
     return {"metrics": metrics, "unavailable_metrics": unavailable, "hotspots": [],
             "unavailable_observations": [{**item, "name":EVENTS[item['event']][0],
+                "raw_event":raw_events[item['event']],
                 "evidence_state":"Unsupported" if "not supported" in item['reason'] else "Missing" if "not counted" in item['reason'] else "Invalid",
                 "evidence_version":1, "value":None, "evidence":path.name} for item in unavailable]}
+
+
+def probe_descriptor_details(directory, document, metrics):
+    """Reuse the captured descriptor document without rereading the evidence file."""
+    return {'event_descriptors_evidence': str((directory / 'event-descriptors.json').resolve()),
+            'event_descriptors': document,
+            'event_descriptors_requested': [row['requested_selector'] for row in document['events']],
+            'event_descriptors_collected': [m['event'] for m in metrics if m.get('event', '').partition(':')[0] in CACHE_ALIASES]}
 
 
 def parse_massif(path):
@@ -269,6 +283,9 @@ class Adapter:
 
     def describe(self):
         extras={'option_schema':'sampling.schema.json#/$defs/options','structured_outputs':['sampling_profiles and streaming cpu-samples.jsonl when sample_trace=true','scheduler_timelines from recorded context-switch boundaries when switch_events=true']} if self.id=='perf-record' else {}
+        if self.id == 'perf-stat':
+            extras['hierarchy_event_aliases'] = {selector: descriptor_definition(selector) for selector in CACHE_ALIASES}
+            extras['hierarchy_availability'] = 'Declarations only; actual event and grouped collection require an explicit probe.'
         return {**self.__dict__, "platforms": ["Linux", "WSL2 with successful probe"],
                 "compilers": ["any for external executable"], "hardware": ["tool/OS supported CPU; probe required"],
                 "source_instrumentation": self.id == "google-benchmark", "recompile_required": self.id == "google-benchmark",
@@ -404,7 +421,14 @@ class Adapter:
         return [exe, "--tool=massif", "--massif-out-file=" + str(directory / "massif.out")] + command
 
     def parse(self, directory, options, record):
-        check_execution(record)
+        try:
+            check_execution(record)
+        except LabError as error:
+            selectors = options.get('events', ['duration_time'])
+            if self.id == 'perf-stat' and set(selectors) & set(CACHE_ALIASES):
+                error.details['event_descriptors'] = attach_descriptors(directory,
+                    {'metrics': [], 'unavailable_observations': []}, record['tool_version'], selectors)
+            raise
         if self.id == "google-benchmark":
             if record["returncode"]:
                 raise LabError("target_failed", "Integrated benchmark exited nonzero")
@@ -416,7 +440,20 @@ class Adapter:
                 raise LabError(category, "Hyperfine failed", {"stderr": diagnostic})
             result = parse_hyperfine(directory / "hyperfine.json")
         elif self.id == "perf-stat":
-            result = parse_stat(directory / "perf.csv", options.get("events", ["duration_time"]), options.get('event_groups'))
+            selectors = options.get("events", ["duration_time"])
+            hierarchy = bool(set(selectors) & set(CACHE_ALIASES))
+            try:
+                result = parse_stat(directory / "perf.csv", selectors, options.get('event_groups'))
+            except (LabError, OSError) as error:
+                if hierarchy:
+                    document = attach_descriptors(directory, {'metrics': [], 'unavailable_observations': []}, record['tool_version'], selectors)
+                    if isinstance(error, LabError):
+                        error.details['event_descriptors'] = document
+                    else:
+                        raise LabError('parse_failed', 'Cannot read perf CSV', {'reason': str(error), 'event_descriptors': document}) from error
+                raise
+            if hierarchy:
+                result['event_descriptors'] = attach_descriptors(directory, result, record['tool_version'], selectors)
         elif self.id=='cachegrind':result=parse_cachegrind(directory/'cachegrind.out')
         elif self.id=='dhat':result=parse_dhat(directory/'dhat.json',options.get('operation_count'))
         elif self.id=='callgrind':result=parse_callgrind(directory/'callgrind.out')
@@ -439,7 +476,7 @@ class Adapter:
         if record["returncode"]:
             # A successfully parsed tool output with a nonzero workload status is target failure.
             raise LabError("target_failed", "Target returned nonzero under " + self.id,
-                           {"returncode": record["returncode"]})
+                           {"returncode": record["returncode"], **({'event_descriptors': result['event_descriptors'], 'metrics':result['metrics']} if 'event_descriptors' in result else {})})
         if result["unavailable_metrics"]:
             raise LabError("unavailable", "Requested events could not be counted", result)
         if self.id=='perf-record' and options.get('sample_trace',False):
@@ -482,35 +519,49 @@ class Adapter:
                     raise
                 return {"tool": self.id, "available": False, "reason": error.category, "diagnostic": str(error), "version": None}
         self.validate(options)
+        target = directory / 'execution'
+        target.mkdir()
+        selectors = options.get('events', ['duration_time']) if self.id == 'perf-stat' else []
+        hierarchy = bool(set(selectors) & set(CACHE_ALIASES))
         exe = self.tool_path()
         if not exe:
+            extra = {}
+            if hierarchy:
+                document = attach_descriptors(target, {'metrics': [], 'unavailable_observations': []}, None, selectors)
+                extra = probe_descriptor_details(target, document, [])
             return {"tool": self.id, "available": False,
                     "reason": "configured_path_missing_or_not_usable" if configured_tool(self.id) else "executable_missing",
-                    "configured": configured_tool(self.id), "version": None}
+                    "configured": configured_tool(self.id), "version": None, **extra}
         version_record = execute([exe, "--version"], directory / "version", timeout=10)
         version = ((directory / "version/stdout.txt").read_text() +
                    (directory / "version/stderr.txt").read_text()).strip()
         if version_record["returncode"]:
-            return {"tool": self.id, "available": False, "reason": "version_probe_failed", "version": version}
+            extra = {}
+            if hierarchy:
+                document = attach_descriptors(target, {'metrics': [], 'unavailable_observations': []}, None, selectors)
+                extra = probe_descriptor_details(target, document, [])
+            return {"tool": self.id, "available": False, "reason": "version_probe_failed", "version": version, **extra}
         command = ["/bin/sleep", "0.1"] if self.id == "hyperfine" else ["/bin/true"]
         if self.id == "perf-record":
             command = [sys.executable, "-c", "sum(i*i for i in range(2000000))"]
             if options.get('switch_events',False):
                 command = [sys.executable, '-c', 'import time; sum(i*i for i in range(2000000)); time.sleep(.02)']
-        target = directory / "execution"
-        target.mkdir()
         try:
             record = execute(self.prepare(command, target, options), target, timeout=20)
+            record['tool_version'] = version
             parsed = self.parse(target, options, record)
             if self.id == 'perf-stat' and options.get('event_groups'):
                 incomplete = [m for m in parsed['metrics'] if m.get('event_group_status', 'PASS') != 'PASS']
                 if incomplete:
                     raise LabError('unavailable', 'Grouped perf events have insufficient running coverage',
                                    {'events': [m['event'] for m in incomplete],
-                                    'running_percent': [m['running_percent'] for m in incomplete]})
+                                    'running_percent': [m['running_percent'] for m in incomplete],
+                                    **({'event_descriptors': parsed['event_descriptors'], 'metrics': parsed['metrics']} if 'event_descriptors' in parsed else {})})
             if self.id == "perf-record" and not parsed["hotspots"]:
                 raise LabError("parse_failed", "Sampling produced no parseable hotspots")
             extra = {}
+            if 'event_descriptors' in parsed:
+                extra.update(probe_descriptor_details(target, parsed['event_descriptors'], parsed['metrics']))
             if self.executable == "perf":
                 build = execute([exe, "version", "--build-options"], directory / "build-options", timeout=10)
                 text = (directory / "build-options/stdout.txt").read_text()
@@ -540,12 +591,25 @@ class Adapter:
             if isinstance(error, LabError) and error.category == "cancelled":
                 raise
             stderr = (target / "stderr.txt").read_text() if (target / "stderr.txt").exists() else ""
+            unsupported_hierarchy = (hierarchy and 'No supported events found.' in stderr and
+                'sys_perf_event_open() syscall failed for event' in stderr and
+                ('No such device or address' in stderr or 'ENODEV' in stderr))
             if "Permission" in stderr or "Operation not permitted" in stderr or "perf_event_paranoid" in stderr:
                 reason = "permission_denied"
+            elif unsupported_hierarchy:
+                reason = 'unavailable'
             else:
                 reason = error.category if isinstance(error, LabError) else "tool_failed"
+            extra = {}
+            if isinstance(error, LabError) and 'event_descriptors' in error.details:
+                extra.update(probe_descriptor_details(target, error.details['event_descriptors'], error.details.get('metrics', [])))
+            elif hierarchy:
+                document = attach_descriptors(target, {'metrics': [], 'unavailable_observations': []}, version, selectors)
+                extra.update(probe_descriptor_details(target, document, []))
+            if unsupported_hierarchy and reason == 'unavailable':
+                extra['evidence_state'] = 'Unsupported'
             return {"tool": self.id, "available": False, "version": version,
-                    "reason": reason, "diagnostic": str(error), "stderr": stderr}
+                    "reason": reason, "diagnostic": str(error), "stderr": stderr, **extra}
 
 
 REGISTRY = {

@@ -63,6 +63,9 @@ def _measurements(run, name, scope):
         if state != 'Measured':
             return ('UNSUPPORTED' if state == 'Unsupported' else 'INCONCLUSIVE'), [], refs, None, \
                 f'Metric evidence is {state}, not Measured.'
+        from .perf_events import descriptor_problem
+        if (problem := descriptor_problem(metric)) is not None:
+            return 'INCONCLUSIVE', [], refs, None, problem
         value = metric.get('value')
         if type(value) not in (int, float) or not math.isfinite(value):
             return 'INCONCLUSIVE', [], refs, None, 'Measured metric has no finite value.'
@@ -75,7 +78,8 @@ def _measurements(run, name, scope):
                    metric.get('source_counter', ''), metric.get('operation_count'),
                    metric.get('counter_contract', ''), metric.get('tool', tool.get('id')),
                    metric.get('tool_version', tool.get('version')),metric.get('work_definition_id',''),
-                   metric.get('work_unit',''),metric.get('capture_scope',''),metric.get('capture_window',''))
+                   metric.get('work_unit',''),metric.get('capture_scope',''),metric.get('capture_window',''),
+                   metric.get('event_descriptor_id',''),metric.get('event_descriptor_version',0),metric.get('event_semantics_key',''))
         meanings.add(meaning)
         values.append(value)
         refs.extend(_refs(run, [metric.get('evidence')]))

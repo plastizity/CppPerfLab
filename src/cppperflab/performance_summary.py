@@ -5,6 +5,7 @@ events, prove causes or convert lower instruction counts into elapsed speedup.
 """
 from .lab import summarize
 from .protocol import metric
+from .perf_events import CACHE_ALIASES
 
 
 DIMENSIONS = {
@@ -30,6 +31,8 @@ DIMENSIONS = {
         'numerical.absolute_error', 'numerical.relative_error', 'numerical.residual']},
 }
 
+HIERARCHY_METRICS = tuple(spec['metric_id'] for spec in CACHE_ALIASES.values())
+DIMENSIONS['execution']['metrics'].extend(HIERARCHY_METRICS)
 METRIC_DIMENSION = {name: key for key, value in DIMENSIONS.items() for name in value['metrics']}
 
 
@@ -51,6 +54,7 @@ def data_movement_projection(runs, comparisons=(), members=()):
     movement = {'memory.copied_bytes', 'kernel.logical_input_bytes', 'pipeline.full_traversals',
                 'memory.reads', 'memory.writes', 'cpu.cache_references', 'cpu.cache_misses',
                 'cpu.cache_miss_ratio', 'cpu.cache_mpki', 'cpu.cache_misses_per_work'}
+    movement.update(HIERARCHY_METRICS)
     cache_model = {'cachegrind.data_reads', 'cachegrind.data_writes', 'cachegrind.d1_read_misses',
                    'cachegrind.d1_write_misses', 'cachegrind.ll_read_misses',
                    'cachegrind.ll_write_misses', 'cachegrind.d1_miss_rate', 'cachegrind.ll_data_mpki'}
@@ -69,7 +73,8 @@ def data_movement_projection(runs, comparisons=(), members=()):
             if key is None: continue
             row = dict(item)
             row['run_id'] = rid
-            row['source_tool'] = run.get('tool')
+            tool = run.get('tool')
+            row['source_tool'] = None if tool is None else {key: tool[key] for key in ('id','version','mode') if key in tool}
             row['membership'] = member_by_id.get(rid, {})
             row['evidence_id'] = rid + ':' + item['evidence'] if item.get('evidence') else None
             sources = row.get('sources')

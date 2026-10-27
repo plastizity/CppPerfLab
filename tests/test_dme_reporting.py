@@ -115,7 +115,42 @@ class DataMovementReportingTests(unittest.TestCase):
         self.assertIn('baseline / block-2 / 0',rendered)
         self.assertIn('<td>100</td><td>90</td><td>count/cell</td><td>inconclusive</td>',rendered)
         self.assertIn('完整观测元数据',rendered)
-        self.assertIn('large metadata',rendered)
+        self.assertNotIn('large metadata',rendered)
+
+    def test_specific_cache_and_tlb_raw_events_keep_evidence_and_states(self):
+        from cppperflab.performance_summary import dimension
+        names=['cpu.l1d_loads','cpu.llc_load_misses','cpu.dtlb_loads',
+               'cpu.l1d_load_misses','cpu.llc_loads','cpu.dtlb_load_misses']
+        descriptor={'event_descriptor_id':'linux-cache-event', 'event_descriptor_version':1,
+                    'event_semantics_key':'cpu-family/example/event',
+                    'event_descriptor_evidence':'measurement-000/event-descriptors.json'}
+        for name in names[:3]:
+            self.run['samples'][0]['metrics'].append(metric(name,11,'count','hardware-counter',
+                'target invocation','perf.csv',event=name,**descriptor))
+        self.run['unavailable_observations']=[dict(name=name, value=None, evidence_state=state,
+            evidence_version=1, reason='fixture unavailable', unit='count',method='hardware-counter',
+            scope='target invocation', evidence='perf.csv', **descriptor)
+            for name,state in zip(names[3:],('Unsupported','Missing','Invalid'))]
+        self.run['summary']=summarize(self.run['samples'])
+        view=run_view(self.run)
+        column=view['data_movement']['columns']['data_movement']
+        rows={row['name']:row for row in column['observations'] if row['name'] in names}
+        unavailable={row['name']:row for row in column['unavailable'] if row['name'] in names}
+        self.assertEqual(set(rows),set(names[:3]))
+        self.assertEqual({name:row['evidence_state'] for name,row in unavailable.items()},
+                         dict(zip(names[3:],('Unsupported','Missing','Invalid'))))
+        for name,row in {**rows,**unavailable}.items():
+            self.assertEqual(dimension(name),'execution')
+            self.assertEqual(row['event_semantics_key'],descriptor['event_semantics_key'])
+            self.assertEqual(row['event_descriptor_evidence'],descriptor['event_descriptor_evidence'])
+            self.assertEqual(row['evidence_id'],BASELINE+':perf.csv')
+        self.assertIn('cpu.cache_misses',{row['name'] for row in column['observations']})
+        agent=build_agent_report(view,self.root,limit=200)
+        actual={row['name']:row for row in agent['data_movement']['columns']['data_movement']['observations']['items']}
+        self.assertEqual(actual['cpu.l1d_loads']['event_descriptor_id'],'linux-cache-event')
+        html=data_movement_section(view)
+        self.assertIn('cpu.llc_load_misses',html)
+        self.assertIn('event-descriptors.json',html)
 
 if __name__ == '__main__':
     unittest.main()
