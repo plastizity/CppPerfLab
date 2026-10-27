@@ -91,6 +91,9 @@ For grouped cache-event diagnostics and target-reported work per invocation, rea
 [data movement](references/data-movement.md); require matching evidence boundaries
 and do not infer physical traffic or a memory-bound cause from cache ratios.
 
+For native RSS, CPU time and page faults without hardware counters, read
+[native resources](references/native-resources.md).
+
 For ordinary-program phase logs, lightweight scopes, execution budgets and separate
 acceptance/improvement conclusions, read
 [production phase evidence](references/production-phases.md).

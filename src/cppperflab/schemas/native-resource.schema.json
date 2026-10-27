@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cppperflab:native-resource:1",
+  "description": "Native Linux wait4 report; parser also validates wait status consistency.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "collector",
+    "version",
+    "child_pid",
+    "wait_status",
+    "exited",
+    "exit_code",
+    "signal",
+    "exec_errno",
+    "rusage"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "collector": {
+      "const": "linux-wait4"
+    },
+    "version": {
+      "const": 1
+    },
+    "child_pid": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2147483647
+    },
+    "wait_status": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535
+    },
+    "exited": {
+      "type": "boolean"
+    },
+    "exit_code": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 255
+    },
+    "signal": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1,
+      "maximum": 127
+    },
+    "exec_errno": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1,
+      "maximum": 2147483647
+    },
+    "rusage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_rss_kib",
+        "minor_faults",
+        "major_faults",
+        "voluntary_context_switches",
+        "involuntary_context_switches",
+        "filesystem_inputs",
+        "filesystem_outputs",
+        "user_time",
+        "system_time"
+      ],
+      "properties": {
+        "max_rss_kib": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "minor_faults": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "major_faults": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "voluntary_context_switches": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "involuntary_context_switches": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "filesystem_inputs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "filesystem_outputs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "user_time": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "seconds",
+            "microseconds"
+          ],
+          "properties": {
+            "seconds": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "microseconds": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 999999
+            }
+          }
+        },
+        "system_time": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "seconds",
+            "microseconds"
+          ],
+          "properties": {
+            "seconds": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "microseconds": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 999999
+            }
+          }
+        }
+      }
+    }
+  }
+}

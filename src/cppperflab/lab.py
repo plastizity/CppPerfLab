@@ -11,6 +11,7 @@ from .errors import LabError
 from .execution import execute, check_execution
 from .protocol import sha256
 from .storage import write_json, utc, inventory
+from .work import WORK_REPORT_TOOLS
 
 
 def probe_tools(store, tool_ids=None, options=None, target=None):
@@ -35,7 +36,7 @@ def configured_metric_ids(request, adapter):
     if 'phase_report' in request['measurement'] and not adapter.batch:
         from .phases import METRIC_IDS
         supplied.update(METRIC_IDS)
-    if 'work_report' in request['measurement'] and adapter.id == 'perf-stat':
+    if 'work_report' in request['measurement'] and adapter.id in WORK_REPORT_TOOLS:
         from .work import METRIC_IDS
         supplied.update(METRIC_IDS)
     from .metrics import DERIVATIONS, DME_DERIVATIONS
@@ -61,8 +62,8 @@ def _missing_claim_metrics(request, adapter):
 def plan(request, store):
     from .budget import execution_budget
     selected = request["measurement"]["tool"]
-    if 'work_report' in request['measurement'] and selected not in ('auto', 'perf-stat'):
-        raise LabError('invalid_request', 'Work reports require the non-batch perf-stat adapter')
+    if 'work_report' in request['measurement'] and selected not in ('auto', *WORK_REPORT_TOOLS):
+        raise LabError('invalid_request', 'Work reports require a supported individually scoped adapter: '+', '.join(WORK_REPORT_TOOLS))
     budget=execution_budget(request)
     if selected != "auto" and selected not in REGISTRY:
         raise LabError("invalid_request", "Unknown adapter " + selected)

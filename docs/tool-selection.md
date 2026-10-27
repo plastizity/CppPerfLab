@@ -14,6 +14,7 @@
 | [Linux perf](https://perf.wiki.kernel.org/) | 同时提供事件计数、CPU 采样和原始调用栈 | 依赖实际事件权限、硬件与符号能力；采样占比不是耗时 |
 | [Valgrind Massif](https://valgrind.org/docs/manual/ms-manual.html) | 观察堆快照及分配栈，不要求目标源码插桩 | 运行干扰明显；快照峰值不是 RSS、分配次数或原生耗时 |
 | [Google Benchmark](https://github.com/google/benchmark) | 集成式 C++ 微基准，有重复迭代计时和原生 JSON | 需要目标注册 benchmark；当前只适配单 case 的 wall/CPU 计时 |
+| 项目内 native-resource | Linux `wait4` 采集单次目标调用的 RSS 高水位、CPU 时间及缺页数，不依赖硬件计数器 | 含启动与已等待后代的资源语义；RSS 不是进程树同时总量，不提供原生耗时；需显式构建本地 helper，见[原生进程资源](../guides/native-resources.md) |
 
 上述组合互补；不将不同计时范围、内存指标或采样结果强行合并。
 安装某个工具不代表它能在本机采集。显式配置不可用时返回诊断，不隐式切换。

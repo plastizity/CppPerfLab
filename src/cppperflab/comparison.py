@@ -205,6 +205,42 @@ def compare(a, b, metric_name="time.wall", allow_command_change=False,
                                 allow_command_change,regression_fraction,varying_parameter,metric_scope)
 
 
+def rejected_informational_comparison(baselines, candidates, metric_name, metric_scope, policy, error, *, blocks=None):
+    """Retain a failed diagnostic comparison without inventing a ratio or weakening gates."""
+    if error.category != 'incomparable':
+        raise error
+    runs = [*baselines, *candidates]
+    if (any(run['status'] != 'completed' or run['correctness']['status'] != 'passed' for run in runs)
+            or error.details.get('acceptance', {}).get('status') == 'FAIL'):
+        raise error
+    from .validity import evaluate_comparison_validity, evaluate_paired_validity, apply_validity, _aggregate
+    validity = (evaluate_paired_validity(blocks,metric_name,metric_scope) if blocks is not None else
+                evaluate_comparison_validity(baselines[0],candidates[0],metric_name,metric_scope))
+    if validity['claim_applicable'] is False:
+        for condition in validity['conditions']:
+            if (condition['id']=='auxiliary_metric' and condition['origin']=='platform'
+                    and condition['source']=='measurement'):
+                condition['required']=False
+                condition['reason'] += ' This rejected auxiliary comparison is informational.'
+        validity['status']=_aggregate(validity['conditions'])
+    original = error.details.get('acceptance', {})
+    acceptance = {'status':'UNSUPPORTED' if original.get('status') == 'UNSUPPORTED' else 'INCONCLUSIVE',
+                  'reason':original.get('reason', str(error))}
+    result = {'schema_version':1, 'baseline_id':baselines[0]['run_id'], 'candidate_id':candidates[0]['run_id'],
+              'baseline_run_ids':[run['run_id'] for run in baselines],
+              'candidate_run_ids':[run['run_id'] for run in candidates],
+              'metric':metric_name, 'metric_scope':metric_scope, 'comparison_gate':'informational',
+              'comparable':False, 'status':'incomparable', 'error':error.as_dict(),
+              'acceptance_policy':policy, 'acceptance':acceptance, 'correctness_status':'passed',
+              'unit':None, 'baseline_median':None, 'candidate_median':None, 'change_fraction':None,
+              'speedup':None, 'bootstrap_95_percent_speedup':None,
+              'limitations':['No ratio or performance score is assigned to an incomparable diagnostic.']}
+    apply_validity(result,validity)
+    result['normalized_cost']=normalized_cost(result)
+    result['decisions']=decisions(result)
+    return result
+
+
 def summarize_comparison(a,b,metric_name,unit,av,bv,policy,allow_command_change=False,
                          regression_fraction=.05,varying_parameter=None,metric_scope=None,paired=False):
     """Shared inference engine; paired inputs are validated block representatives."""

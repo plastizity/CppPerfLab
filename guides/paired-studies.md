@@ -65,8 +65,9 @@ perflab report STUDY_ID --kind study --format html --output results/paired.html 
   repetitions=1。预热次数仍由请求声明，不能把一批独立结果按行号伪配对。
 - `budget` 是最大 `lab.run` 调用数，至少覆盖整个矩阵；不是强制花完的预算。
 - `metric_scope` 可精确选择一个阶段路径。`secondary_metrics` 可列多个
-  `{metric, metric_scope?, policy}`，每项必须显式给出政策，不能把时间目标
-  无条件套到内存或诊断指标上。
+  `{metric, metric_scope?, policy, gate?}`，每项必须显式给出政策，不能把时间目标
+  无条件套到内存或诊断指标上。`gate` 可预先选择 `required`（默认）或
+  `informational`；主指标始终为 required。
 - 除已明确允许的命令参数处理变量，声明的输入/参数/工具/控制须匹配。
   可比性声明检查在执行前拒绝明显不一致；原始测量的环境、事件、scope、
   覆盖率、证据和正确性仍通过同一 Comparison 检查。
@@ -84,10 +85,13 @@ Study 执行前保存区块计划和两个版本的输入/构建指纹。每个�
 variant、原始 run_id、开始/结束时间和状态。下一次启动前及完成后均检查声明的
 身份，版本或输入变化则停止。哈希不是安全隔离或源代码正确性的证明。
 
-任何成员、数值门、证据或比较条件失败都会保存原始运行及已完成的区块，然后
-停止。没有隐式重跑、区块删除或以剩余成功区块重新评分。取消传播为 cancelled。
-只有所有配置的比较均成功计算后才归档这些比较结果；统计验收可以是 FAIL 或
-INCONCLUSIVE，这与工具/工作流 completed 分开。
+成员、数值门、必要证据或 required 比较条件失败会保存原始运行及已完成的
+区块，然后停止。预先声明为 informational 的次指标若数学上不可比，例如
+基线或候选为零使比率无法定义，则保留不可比记录、INCONCLUSIVE 和空评分，
+不阻断其他 required 比较；它不允许绕过正确性或 Claim 中真正必要的条件。
+没有隐式重跑、区块删除或以剩余成功区块重新评分。取消传播为 cancelled。
+统计验收可以是 FAIL 或 INCONCLUSIVE，这与工具/工作流 completed 分开。
+不能事后把失败的必要项改成信息项，再声称原实验通过。
 
 每个比较拥有真实 comparison_id 并引用 study_id。`baseline_id`/`candidate_id`
 仅是首个来源上下文，**全部来源**由 baseline_run_ids/candidate_run_ids 和

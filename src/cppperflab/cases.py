@@ -5,7 +5,7 @@ from pathlib import Path
 import random
 
 from .budget import execution_budget
-from .comparison import compare,validate_policy,request_differences
+from .comparison import compare,validate_policy,request_differences,rejected_informational_comparison
 from .errors import LabError
 from .lab import run
 from .protocol import fields,require,positive,load_request
@@ -31,12 +31,13 @@ def load_cases(spec,base,store):
     require(isinstance(spec['comparisons'],list),'comparisons must be an explicit array; empty means profiling only')
     keys=set()
     for item in spec['comparisons']:
-        fields(item,('baseline','candidate','metric','metric_scope','policy','allow_command_change'),('baseline','candidate','metric','policy'),'case comparison')
+        fields(item,('baseline','candidate','metric','metric_scope','policy','allow_command_change','gate'),('baseline','candidate','metric','policy'),'case comparison')
         require(isinstance(item['baseline'],str) and isinstance(item['candidate'],str),'Comparison variants must be strings')
         require(item['baseline'] in templates and item['candidate'] in templates and item['baseline']!=item['candidate'],'Comparison must name distinct configured variants')
         require(isinstance(item['metric'],str) and bool(item['metric']),'Comparison metric required')
         require('metric_scope' not in item or isinstance(item['metric_scope'],str) and bool(item['metric_scope']),'Invalid exact metric scope')
         require(type(item.get('allow_command_change',False)) is bool,'allow_command_change must be boolean')
+        require(item.get('gate','required') in ('required','informational'),'Invalid case comparison gate')
         item['policy']=validate_policy(item['policy'])
         key=(item['baseline'],item['candidate'],item['metric'],item.get('metric_scope'))
         require(key not in keys,'Duplicate case comparison');keys.add(key)
@@ -100,8 +101,15 @@ def run_cases(spec,bound,store):
             comparisons=[]
             for sample in spec['samples']:
                 for item in spec['comparisons']:
-                    c=compare(measured[(sample,item['baseline'])],measured[(sample,item['candidate'])],item['metric'],
-                              item.get('allow_command_change',False),policy=item['policy'],metric_scope=item.get('metric_scope'))
+                    baseline=measured[(sample,item['baseline'])];candidate=measured[(sample,item['candidate'])]
+                    gate=item.get('gate','required')
+                    try:
+                        c=compare(baseline,candidate,item['metric'],item.get('allow_command_change',False),
+                                  policy=item['policy'],metric_scope=item.get('metric_scope'))
+                    except LabError as error:
+                        if gate != 'informational':raise
+                        c=rejected_informational_comparison([baseline],[candidate],item['metric'],item.get('metric_scope'),item['policy'],error)
+                    c['comparison_gate']=gate
                     c.update(case_id=sample,collection_id=spec['collection_id'],study_id=id,
                              baseline_variant=item['baseline'],candidate_variant=item['candidate'])
                     comparisons.append(c)

@@ -70,6 +70,13 @@ for selector, descriptor in CACHE_ALIASES.items():
     DEFINITIONS[name]['reliability'] = ('Raw alias count from a supported native PMU; actual event population depends on CPU, kernel and PMU. '
         'LLC load misses do not represent all LLC misses or DRAM traffic.')
 
+from .native_resource import RESOURCE_METRICS, SCOPE as RESOURCE_SCOPE
+for name, resource in RESOURCE_METRICS.items():
+    DEFINITIONS[name] = definition(name, resource['domains'], resource['category'], resource['unit'],
+                                   resource['formula'], RESOURCE_SCOPE, resource['direction'])
+    DEFINITIONS[name]['reliability'] = ('Linux wait4 child resource observation; process startup and waited descendants included. '
+        'Peak RSS is not concurrent process-tree total or heap; timeval precision is OS-dependent.')
+
 for name, (num, den, factor, unit) in DERIVATIONS.items():
     DEFINITIONS[name] = definition(name, ['D06'] if name.startswith('cpu.') else ['D01'],
                                    'Efficiency' if name.startswith('cpu.') else 'Diagnostic', unit,

@@ -2,6 +2,7 @@
 from pathlib import Path
 from .adapters import REGISTRY
 from .errors import LabError
+from .work import WORK_REPORT_TOOLS
 
 
 def execution_budget(request):
@@ -12,9 +13,9 @@ def execution_budget(request):
     candidates=[]
     for tool in (list(REGISTRY) if selected=='auto' else [selected]):
         adapter=REGISTRY[tool]
-        if 'work_report' in config and adapter.id != 'perf-stat':
+        if 'work_report' in config and adapter.id not in WORK_REPORT_TOOLS:
             candidates.append({'tool':tool,'eligible':False,
-                               'reason':{'category':'invalid_request','message':'Work report scope requires the non-batch perf-stat adapter'}})
+                               'reason':{'category':'invalid_request','message':'Work report scope requires a supported individually scoped adapter: '+', '.join(WORK_REPORT_TOOLS)}})
             continue
         try:
             adapter.validate(config['options'])

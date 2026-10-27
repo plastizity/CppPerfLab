@@ -104,7 +104,8 @@ def load_assessment(spec,base,store):
                 child=dict(common,analysis='paired',baseline=spec['requests']['baseline'],candidate=spec['requests']['candidate'],blocks=design['blocks'],order=design['order'],
                     budget=design['blocks']*(4 if design['order']=='abba' else 2),resource_conditions=conditions,
                     **{k:descriptors[0][k] for k in ('metric','metric_scope','policy') if k in descriptors[0]},
-                    secondary_metrics=[{k:d[k] for k in ('metric','metric_scope','policy') if k in d} for d in descriptors[1:]])
+                    secondary_metrics=[{**{k:d[k] for k in ('metric','metric_scope','policy') if k in d},
+                                        'gate':'informational' if d['gate']=='informational' else 'required'} for d in descriptors[1:]])
                 validate_pair_conditions(child,requests)
             else:
                 from .comparison import request_differences
@@ -113,6 +114,7 @@ def load_assessment(spec,base,store):
                 child=dict(schema_version=1,analysis='cases',name=common['name'],seed=spec['seed'],constraints=spec['constraints'],
                     collection_id=spec['collection_id'],samples=[sample],requests=dict(spec['requests']),budget=2,
                     comparisons=[dict(baseline='baseline',candidate='candidate',allow_command_change=common['allow_command_change'],
+                        gate='informational' if d['gate']=='informational' else 'required',
                         **{k:d[k] for k in ('metric','metric_scope','policy') if k in d}) for d in descriptors])
             jobs.append(dict(sample_id=sample,profile_id=profile['id'],kind=design['kind'],spec=child,requests=requests,templates=modified,descriptors=descriptors))
     return spec,jobs
@@ -146,12 +148,15 @@ def assess_rows(spec,rows):
             if row['assessment_role']=='end_to_end':primary.append(decision['improvement']['status'])
             if row['assessment_role']=='work':
                 work.append(dict(comparison_id=row['comparison_id'],metric=row['metric'],scope=row.get('metric_scope'),
-                                 baseline=row['baseline_median'],candidate=row['candidate_median'],change_fraction=row['change_fraction'],unit=row['unit']))
+                                 baseline=row['baseline_median'],candidate=row['candidate_median'],change_fraction=row['change_fraction'],unit=row['unit'],
+                                 status='OBSERVED' if row['comparable'] else 'UNKNOWN',
+                                 reason=None if row['comparable'] else row['error']['message']))
         acceptance=combine_gates(gates+correctness)
         cases.append(dict(case_id=sample,correctness=combine_gates(correctness),acceptance=acceptance,
             end_to_end_improvement=primary[0],gates=[dict(comparison_id=r['comparison_id'],profile_id=r['profile_id'],
                 role=r['assessment_role'],gate=r['assessment_gate'],decisions=decisions(r)) for r in selected],work=work,
-            work_attribution='recorded_work_differs; no single-step optimization inference' if any(w['baseline']!=w['candidate'] for w in work) else
+            work_attribution='unknown; work comparison is inconclusive' if any(w['status']=='UNKNOWN' for w in work) else
+                             'recorded_work_differs; no single-step optimization inference' if any(w['baseline']!=w['candidate'] for w in work) else
                              'recorded_work_unchanged; unrecorded work is not proven constant'))
     return dict(schema_version=1,correctness=combine_gates([c['correctness'] for c in cases]),
         acceptance=combine_gates([c['acceptance'] for c in cases]),

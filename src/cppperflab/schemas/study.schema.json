@@ -372,6 +372,12 @@
                   "max_regression_fraction"
                 ],
                 "additionalProperties": false
+              },
+              "gate": {
+                "enum": [
+                  "required",
+                  "informational"
+                ]
               }
             },
             "required": [
@@ -500,6 +506,12 @@
               },
               "allow_command_change": {
                 "type": "boolean"
+              },
+              "gate": {
+                "enum": [
+                  "required",
+                  "informational"
+                ]
               }
             },
             "required": [
@@ -614,10 +626,27 @@
                 "minItems": 1,
                 "items": {
                   "type": "object",
-                  "allOf": [{
-                    "if": {"properties": {"role": {"const": "diagnostic"}}, "required": ["role"]},
-                    "then": {"properties": {"gate": {"const": "informational"}}}
-                  }],
+                  "allOf": [
+                    {
+                      "if": {
+                        "properties": {
+                          "role": {
+                            "const": "diagnostic"
+                          }
+                        },
+                        "required": [
+                          "role"
+                        ]
+                      },
+                      "then": {
+                        "properties": {
+                          "gate": {
+                            "const": "informational"
+                          }
+                        }
+                      }
+                    }
+                  ],
                   "properties": {
                     "id": {
                       "type": "string",

@@ -103,10 +103,11 @@ def data_movement_section(view):
         column=section['columns'][key]
         content.append('<h3>'+esc(title)+'</h3>')
         if column['comparisons']:
-            content.append(table(['指标','基线中位数','候选中位数','单位','观察变化'],[
+            content.append(table(['指标','基线中位数','候选中位数','单位','观察变化','比较用途'],[
                 [esc(row['metric']),esc(number(row.get('baseline_median'))),
-                 esc(number(row.get('candidate_median'))),esc(row.get('unit','未声明')),
-                 esc(row['observed_change'] if row['comparable'] else 'inconclusive')]
+                 esc(number(row.get('candidate_median'))),esc(row.get('unit') or '未声明'),
+                 esc(row['observed_change'] if row['comparable'] else 'inconclusive'),
+                 '信息项，不作为收益通过条件' if row.get('comparison_gate')=='informational' else '必要项']
                 for row in column['comparisons']]))
         samples=table(['指标','绝对值','单位','状态','范围 / 分母','variant / block / slot',
                        'Run / 样本','工具','证据'],[
@@ -326,6 +327,8 @@ def comparisons_section(view):
     content = []
     for c in view["comparisons"]:
         content.append('<article><h3>' + esc(c["metric"]) + (' · '+esc(c['case_id']) if 'case_id' in c else '') + (': scale=' + esc(c["scale"]) if 'scale' in c else '') + '</h3>')
+        if c.get('comparison_gate')=='informational':
+            content.append('<p class="notice">信息项，不作为收益通过条件；不可比或证据不足仍需保留。</p>')
         if c.get('execution_context',{}).get('kind')=='concurrent_ab':
             content.append('<p class="notice">当前结果表示两版本同时运行、共同竞争资源时的相对表现。隔离后的串行表现需要单独测量。</p>')
             content.append(details('并发竞争条件',c['execution_context']))
@@ -340,7 +343,7 @@ def comparisons_section(view):
         content.append('<p>回退门槛通过不代表确认加速；局部改善不代表全过程改善。</p>')
         content.append(details("归一化性能成本（基线 1，越小越好）与验收", normalized_cost(c)))
         if not c["comparable"]:
-            content.append('<p class="alert">不可比：未计算加速比。</p>' + details('测量条件差异', c["error"]["details"]) + '</article>')
+            content.append('<p class="alert">不可比：未计算加速比。</p>' + details('比较失败与测量条件差异', c["error"]) + '</article>')
             continue
         content.append('<p class="status">' + esc(c["classification"]) + '</p>')
         content.append(table(['组', '中位数 (' + c["unit"] + ')', '区块数' if c['policy'].get('paired') else '重复数', 'CV'], [
@@ -371,7 +374,7 @@ def assessment_section(view):
         for c in assessment['cases']]))
     content.append(table(['输入','采集配置','角色','指标及范围','基线中位数','候选中位数','单位','验收门','门结果'],[
         [esc(c['case_id']),esc(c['profile_id']),esc(c['assessment_role']),esc(c['metric']+' / '+str(c.get('metric_scope'))),
-         number(c['baseline_median']),number(c['candidate_median']),esc(c['unit']),esc(c['assessment_gate']),
+         number(c.get('baseline_median')),number(c.get('candidate_median')),esc(c.get('unit') or '—'),esc(c['assessment_gate']),
          esc(c['decisions'][c['assessment_gate']]['status']) if c['assessment_gate']!='informational' else 'INFORMATIONAL']
         for c in view['comparisons']]))
     content.append(details('完整联合结论与工作量',assessment))
@@ -467,14 +470,16 @@ def agent_summary_section(report):
         cost=row.get('normalized_cost')
         rows.append([
             esc(row['metric']),esc(row.get('case_id','—')),esc(row.get('metric_scope','—')),
-            number(row.get('baseline_median')),number(row.get('candidate_median')),esc(row.get('unit','—')),
+            '信息项' if row.get('comparison_gate')=='informational' else '必要项',
+            number(row.get('baseline_median')),number(row.get('candidate_median')),esc(row.get('unit') or '—'),
             number(cost['value']) if cost is not None else '—',
             esc(row['acceptance']['status']) if row.get('acceptance') is not None else '未建立',
             esc(row['validity']['status']),
             esc(row['claim_acceptance']['status']) if row.get('claim_acceptance') is not None else '未建立',
             esc(row['decisions']['improvement']['status']) if 'decisions' in row else '未建立',
         ])
-    body+=table(['指标','输入','范围','基线','候选','单位','相对成本','单项验收','有效性','主张验收','统计改善'],rows)
+    body+=table(['指标','输入','范围','比较用途','基线','候选','单位','相对成本','单项验收','有效性','主张验收','统计改善'],rows)
+    body+='<p class="muted">信息项不作为收益通过条件；其不可比、证据不足或错误仍应查看。</p>'
     body+='<p class="muted">比较共 '+esc(comparisons['total'])+' 项，展示 '+esc(comparisons['returned'])+' 项，省略 '+esc(comparisons['omitted'])+' 项常规明细。失败、回退与证据不足项始终保留；完整结果见下方实验比较。</p>'
     body+=details('警示与覆盖缺口',{'attention':report['attention'],'coverage':report['coverage']})
     return body

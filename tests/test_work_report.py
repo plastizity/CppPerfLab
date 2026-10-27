@@ -63,12 +63,12 @@ class WorkReportTests(unittest.TestCase):
             request['measurement'].update(tool='auto', work_report=config())
             request['goal'] = dict(metrics=['work.items'],max_overhead='high',allow_instrumentation=True)
             def probes(store, ids, options, target):
-                self.assertEqual(ids, ['perf-stat'])
-                return {'tools': {'perf-stat': {'available':True}}}
+                self.assertEqual(ids, ['perf-stat','native-resource'])
+                return {'tools': {tool:{'available':True} for tool in ids}}
             with mock.patch('cppperflab.lab.probe_tools', side_effect=probes):
                 result = plan(request, Store(Path(temp) / 'store'))
             self.assertEqual(result['selected'], 'perf-stat')
-            self.assertTrue(all(not row['feasible'] for row in result['candidates'] if row['tool'] != 'perf-stat'))
+            self.assertTrue(all(not row['feasible'] for row in result['candidates'] if row['tool'] not in ('perf-stat','native-resource')))
 
     def test_grouped_goal_exposes_same_execution_diagnostics(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -111,6 +111,7 @@ class WorkReportTests(unittest.TestCase):
             budget=execution_budget(request)
             rows={row['tool']:row for row in budget['candidates']}
             self.assertTrue(rows['perf-stat']['eligible'])
+            self.assertTrue(rows['native-resource']['eligible'])
             for name in ('hyperfine','google-benchmark','massif'):
                 self.assertFalse(rows[name]['eligible'])
                 self.assertIn('Work report scope',rows[name]['reason']['message'])

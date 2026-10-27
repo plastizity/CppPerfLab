@@ -99,7 +99,8 @@ def _critical(comparison):
 
 def _comparison(row):
     fields = ('comparison_id', 'study_id', 'source_study_id', 'baseline_id', 'candidate_id',
-              'case_id', 'profile_id', 'assessment_role', 'assessment_gate', 'metric', 'metric_scope',
+              'baseline_run_ids', 'candidate_run_ids',
+              'case_id', 'profile_id', 'assessment_role', 'assessment_gate', 'comparison_gate', 'metric', 'metric_scope',
               'unit', 'comparable', 'classification', 'baseline_median', 'candidate_median',
               'speedup', 'change_fraction', 'runtime_reduction', 'bootstrap_95_percent_speedup',
               'coefficient_of_variation', 'paired_ratio_cv', 'sample_unit', 'sufficient_samples',
@@ -115,6 +116,8 @@ def _comparison(row):
         result['execution_context'] = _pick(row['execution_context'], ('kind', 'scope', 'concurrent_runs', 'resource_conditions'))
     if row.get('error') is not None:
         result['error'] = _error(row['error'])
+        if row.get('comparison_gate') == 'informational' and 'details' in row['error']:
+            result['error']['details'] = row['error']['details']
     return result
 
 

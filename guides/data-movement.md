@@ -176,7 +176,7 @@ fixture 测试；此结果不证明宿主没有内存控制器。
 }
 ```
 
-`work_report` 只支持非批量 `perf-stat`；其 `path` 是测量目录内的
+`work_report` 支持非批量 `perf-stat` 和 `native-resource`；其 `path` 是测量目录内的
 `*.work.json` 文件名。每次目标调用应写入自己的报告，例如在目标支持相应
 参数时传入 `{run_dir}/invocation.work.json`。文件由目标在该次调用期间写出，
 其开销也包含在目标测量范围内。报告格式示例：
@@ -216,6 +216,8 @@ fixture 测试；此结果不证明宿主没有内存控制器。
 Estimated；分母为零时为 Missing。保留来源及状态；不得跨 Run 拼接计数，也
 不得用阶段工作量除以全进程事件。缓存 Miss × 64 不能代表物理流量；Uncore
 和内存带宽采集不属于此接口。诊断数值变化并不证明其造成了运行时间变化。
+即使通过 `native-resource` 采集工作量，硬件事件的单位工作量派生仍需满足
+同调用、有效硬件事件组及覆盖率规则，不能跨 profile 拼接。
 
 现有 Comparison 的收益验收要求 Measured 输入，上述 Estimated 比值不获得通过
 评分。符合可比性和正确性条件的原始缓存计数或自报工作量可使用既有配对及

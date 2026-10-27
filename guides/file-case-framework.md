@@ -153,6 +153,13 @@ multiple comparisons to display wall time, work and measured memory separately;
 units are never added into a synthetic score. Cases retain individual results;
 this interface does not invent suite weights or allow a failed case to disappear.
 
+Each `comparisons` entry may preregister `gate: "required"` (the default) or
+`"informational"`. An incomparable informational metric, for example a ratio
+with a zero denominator, retains its inconclusive comparison and null score
+without blocking other required comparisons. Correctness and required Claim
+conditions still apply. Do not relabel a required metric after a failed run and
+claim that the original experiment passed; use a newly preregistered experiment.
+
 Case matrix comparisons are unpaired: randomized job order alone is not pairing.
 For native AB/BA or ABBA, export each variant with `replay --mode prepare` and use
 those requests in the existing [paired Study](paired-studies.md), with one

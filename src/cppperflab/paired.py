@@ -5,7 +5,7 @@ import random
 import statistics
 
 from .budget import execution_budget
-from .comparison import validated_samples, summarize_comparison, validate_policy, request_differences
+from .comparison import validated_samples, summarize_comparison, validate_policy, request_differences, rejected_informational_comparison
 from .environment import fingerprints, identity_snapshot
 from .errors import LabError
 from .lab import run
@@ -47,9 +47,10 @@ def load_paired(spec, base):
     descriptors=[{'metric':spec['metric'],'metric_scope':spec.get('metric_scope'),'policy':spec['policy']}]
     require(isinstance(spec.get('secondary_metrics',[]),list),'secondary_metrics must be an array')
     for descriptor in spec.get('secondary_metrics',[]):
-        fields(descriptor,('metric','metric_scope','policy'),('metric','policy'),'secondary metric')
+        fields(descriptor,('metric','metric_scope','policy','gate'),('metric','policy'),'secondary metric')
         require(isinstance(descriptor['metric'],str) and bool(descriptor['metric']),'Secondary metric ID required')
         require('metric_scope' not in descriptor or isinstance(descriptor['metric_scope'],str) and bool(descriptor['metric_scope']),'Invalid secondary scope')
+        require(descriptor.get('gate','required') in ('required','informational'),'Invalid secondary comparison gate')
         descriptor['policy']=validate_policy(descriptor['policy']);descriptors.append(descriptor)
     require(len({(d['metric'],d.get('metric_scope')) for d in descriptors})==len(descriptors),'Duplicate metric/scope comparison')
     requests={}
@@ -260,7 +261,19 @@ def run_paired(spec, requests, store):
                 write_json(directory/'study.json',result)
             descriptors=[{'metric':spec['metric'],'metric_scope':spec.get('metric_scope'),'policy':spec['policy']},*spec.get('secondary_metrics',[])]
             # Validate every comparison before publishing any successful score.
-            comparisons=[compare_blocks(completed,d['metric'],d['policy'],d.get('metric_scope'),spec.get('allow_command_change',False)) for d in descriptors]
+            comparisons=[]
+            for descriptor in descriptors:
+                gate=descriptor.get('gate','required')
+                try:
+                    comparison=compare_blocks(completed,descriptor['metric'],descriptor['policy'],descriptor.get('metric_scope'),spec.get('allow_command_change',False))
+                except LabError as error:
+                    if gate != 'informational':raise
+                    members=[member for block in completed for member in block['members']]
+                    baselines=[member['run'] for member in members if member['variant']=='baseline']
+                    candidates=[member['run'] for member in members if member['variant']=='candidate']
+                    comparison=rejected_informational_comparison(baselines,candidates,descriptor['metric'],descriptor.get('metric_scope'),descriptor['policy'],error,blocks=completed)
+                comparison['comparison_gate']=gate
+                comparisons.append(comparison)
             for comparison in comparisons:
                 cid,folder=store.create('comparisons')
                 comparison.update(comparison_id=cid,study_id=identifier)

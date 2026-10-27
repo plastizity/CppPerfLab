@@ -6,6 +6,7 @@ events, prove causes or convert lower instruction counts into elapsed speedup.
 from .lab import summarize
 from .protocol import metric
 from .perf_events import CACHE_ALIASES
+from .native_resource import RESOURCE_METRICS
 
 
 DIMENSIONS = {
@@ -33,6 +34,8 @@ DIMENSIONS = {
 
 HIERARCHY_METRICS = tuple(spec['metric_id'] for spec in CACHE_ALIASES.values())
 DIMENSIONS['execution']['metrics'].extend(HIERARCHY_METRICS)
+DIMENSIONS['execution']['metrics'].extend(name for name in RESOURCE_METRICS if name.startswith('os.'))
+DIMENSIONS['timing']['metrics'].extend(name for name in RESOURCE_METRICS if name.startswith('time.'))
 METRIC_DIMENSION = {name: key for key, value in DIMENSIONS.items() for name in value['metrics']}
 
 
@@ -48,6 +51,8 @@ def data_movement_projection(runs, comparisons=(), members=()):
                for key in ('outcome', 'work', 'data_movement')}
     outcome = {'time.wall', 'time.iteration.wall', 'solver.total_time', 'pipeline.stage_wall',
                'phase.inclusive_time', 'phase.self_time', 'workload.throughput'}
+    outcome.update(name for name, spec in RESOURCE_METRICS.items()
+                   if name.startswith('memory.') and spec['category'] == 'Outcome')
     work = {'work.items', 'algorithm.operations', 'algorithm.iterations', 'algorithm.evaluations',
             'algorithm.elements', 'solver.iterations', 'phase.work', 'phase.calls',
             'cpu.instructions', 'kernel.useful_flops', 'cpu.instructions_per_work'}
@@ -92,9 +97,10 @@ def data_movement_projection(runs, comparisons=(), members=()):
         if key is None: continue
         row = {field: item[field] for field in ('comparison_id','baseline_id','candidate_id',
                'baseline_run_ids','candidate_run_ids','case_id','profile_id','assessment_role',
-               'metric','metric_scope','unit','comparable','classification','sufficient_samples',
-               'stable_samples','baseline_median','candidate_median','change_fraction',
-               'bootstrap_95_percent_speedup','block_pairs','validity','claim_acceptance') if field in item}
+               'metric','metric_scope','unit','comparable','classification','comparison_gate','sufficient_samples',
+               'stable_samples','baseline_median','candidate_median','change_fraction','speedup',
+               'bootstrap_95_percent_speedup','block_pairs','validity','claim_acceptance','acceptance',
+               'normalized_cost','decisions','error') if field in item}
         classification = item.get('classification')
         row['observed_change'] = ('observed_reduction' if classification == 'observed_improvement' else
                                   'observed_increase' if classification == 'observed_regression' else 'inconclusive') \
@@ -113,6 +119,7 @@ def data_movement_projection(runs, comparisons=(), members=()):
             'limitations': ['Rows retain their original scope, state and per-sample evidence; they are not aggregated across runs.',
                             'Reported work and logical bytes are target declarations, not physical DRAM traffic.',
                             'Instrumented-run time is not a native timing baseline; inspect each source tool.',
+                            'Linux wait4 peak RSS is not heap usage or simultaneous process-tree RSS; user/system CPU time is not wall time.',
                             'Generic CPU cache events are not necessarily LLC or DRAM; Cachegrind is a model.',
                             'No causal attribution, composite score, or independent benefit follows from these observations.',
                             'A no-clear-change comparison does not establish equality.']}
@@ -127,7 +134,7 @@ def comparison_finding(result):
                'normalized_cost': normalized_cost(result), 'decisions':decisions(result), 'acceptance':result.get('acceptance')}
     for field in ('validity','claim_acceptance'):
         if field in result:finding[field]=result[field]
-    finding.update({k:result[k] for k in ('comparison_id','metric_scope','case_id','profile_id','assessment_role','assessment_gate') if k in result})
+    finding.update({k:result[k] for k in ('comparison_id','metric_scope','case_id','profile_id','assessment_role','assessment_gate','comparison_gate') if k in result})
     if not result['comparable']:
         finding.update(outcome='incomparable', message='测量条件或指标语义不兼容，未形成变化结论。',
                        error=result['error'])

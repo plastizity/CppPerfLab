@@ -19,6 +19,7 @@ from .protocol import metric, require
 from .tool_config import configured_tool
 from .valgrind_profiles import parse_cachegrind, parse_dhat, parse_callgrind, CACHE_EVENTS, CACHE_RATIOS, DHAT_FIELDS
 from .perf_events import CACHE_ALIASES, attach_descriptors, descriptor_definition
+from .native_resource import RESOURCE_METRICS, parse_resource
 
 
 EVENTS = {
@@ -310,7 +311,7 @@ class Adapter:
         return list(self.metrics)
 
     def validate(self, options):
-        allowed = {"google-benchmark": {"filter", "min_time_seconds", "warmup_seconds", "counters", "stage"}, "hyperfine": set(), "perf-stat": {"events", "event_groups"}, "perf-record": {"frequency","call_graph","sample_trace","symbolizer","precheck","switch_events"}, "massif": set(), "callgrind": set(), "dhat": {"operation_count"}, "cachegrind": {"I1","D1","LL"}}[self.id]
+        allowed = {"google-benchmark": {"filter", "min_time_seconds", "warmup_seconds", "counters", "stage"}, "hyperfine": set(), "native-resource": set(), "perf-stat": {"events", "event_groups"}, "perf-record": {"frequency","call_graph","sample_trace","symbolizer","precheck","switch_events"}, "massif": set(), "callgrind": set(), "dhat": {"operation_count"}, "cachegrind": {"I1","D1","LL"}}[self.id]
         require(not set(options) - allowed, self.id + ": unsupported options " + str(set(options) - allowed))
         if self.id=='dhat' and 'operation_count' in options:
             from .protocol import positive
@@ -380,6 +381,8 @@ class Adapter:
             return [exe, "--shell=none", "--style=basic", "--output=pipe",
                     "--runs", str(repetitions), "--warmup", str(warmups),
                     "--export-json", str(directory / "hyperfine.json"), "--", shlex.join(command)]
+        if self.id == 'native-resource':
+            return [exe, '--output', str(directory / 'native-resource.json'), '--'] + command
         if self.id == "perf-stat":
             events = options.get('events', ['duration_time'])
             groups = options.get('event_groups', [])
@@ -439,6 +442,21 @@ class Adapter:
                 category = "target_failed" if "non-zero exit code" in diagnostic else "tool_failed"
                 raise LabError(category, "Hyperfine failed", {"stderr": diagnostic})
             result = parse_hyperfine(directory / "hyperfine.json")
+        elif self.id == 'native-resource':
+            path = directory / 'native-resource.json'
+            if not path.is_file() or path.stat().st_size == 0:
+                raise LabError('tool_failed', 'Resource helper did not produce a report',
+                               {'returncode': record['returncode'], 'evidence': str(path)})
+            result = parse_resource(path)
+            child = result['child_status']
+            evidence = {'evidence': str(path), 'child_status': child, 'returncode': record['returncode']}
+            if child['exec_errno'] is not None:
+                raise LabError('tool_failed', 'Resource helper could not exec target', evidence)
+            expected = child['exit_code'] if child['exited'] else 128 + child['signal']
+            if record['returncode'] != expected:
+                raise LabError('tool_failed', 'Resource helper exit does not match child report', evidence)
+            if expected:
+                raise LabError('target_failed', 'Target failed under native resource helper', evidence)
         elif self.id == "perf-stat":
             selectors = options.get("events", ["duration_time"])
             hierarchy = bool(set(selectors) & set(CACHE_ALIASES))
@@ -519,6 +537,8 @@ class Adapter:
                     raise
                 return {"tool": self.id, "available": False, "reason": error.category, "diagnostic": str(error), "version": None}
         self.validate(options)
+        if self.id == 'native-resource' and sys.platform != 'linux':
+            return {'tool': self.id, 'available': False, 'reason': 'linux_required', 'version': None}
         target = directory / 'execution'
         target.mkdir()
         selectors = options.get('events', ['duration_time']) if self.id == 'perf-stat' else []
@@ -541,6 +561,8 @@ class Adapter:
                 document = attach_descriptors(target, {'metrics': [], 'unavailable_observations': []}, None, selectors)
                 extra = probe_descriptor_details(target, document, [])
             return {"tool": self.id, "available": False, "reason": "version_probe_failed", "version": version, **extra}
+        if self.id == 'native-resource' and version != 'CppPerfLab native-resource 1':
+            return {'tool': self.id, 'available': False, 'reason': 'version_mismatch', 'version': version}
         command = ["/bin/sleep", "0.1"] if self.id == "hyperfine" else ["/bin/true"]
         if self.id == "perf-record":
             command = [sys.executable, "-c", "sum(i*i for i in range(2000000))"]
@@ -657,5 +679,11 @@ REGISTRY = {
                 ("Valgrind-compatible target ISA/runtime",),
                 ("large slowdown; timings are not normal execution timings", "heap snapshots are neither RSS nor all allocations"),
                 ("Massif snapshot text",)),
+        Adapter('native-resource', 'perflab-resource', 'Linux wait4 target resource accounting',
+                tuple(RESOURCE_METRICS), 'low', 'native-resource', 'CppPerfLab tools/native_resource.c', 'MIT',
+                ('Linux wait4; project-local helper must be built and configured',),
+                ('Peak RSS is not simultaneous process-tree RSS or heap usage',
+                 'Includes startup and waited-for descendants; helper overhead is not measured or subtracted'),
+                ('native-resource.json version 1',)),
     )
 }

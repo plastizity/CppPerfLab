@@ -61,3 +61,17 @@ ASAN_OPTIONS=detect_leaks=0 ctest --preset check
 ```
 
 Future tool choices and their boundaries are in [tool selection](../docs/tool-selection.md).
+
+## Native resource helper
+
+The project-owned, MIT-licensed helper can be built explicitly with
+`python3.11 scripts/build_native_resource.py`. This compiles only the small local
+C helper with GCC, installs it under `.local/bin` and records a build manifest;
+it downloads no package and does not build a consuming project. See
+[native resources](native-resources.md) for the adapter and scope.
+
+Attempts to obtain GNU time from the official Rocky and GNU FTP sources timed out;
+no package was obtained, signature verified or installed. Existing Google Benchmark
+1.9.4 and Valgrind 3.22 can be reused where available: Cachegrind remains Modeled,
+and Massif/DHAT are instrumented observations. Any later external package still
+requires source, version, license and security review.

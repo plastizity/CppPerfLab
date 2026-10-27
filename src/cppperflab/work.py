@@ -7,6 +7,7 @@ from .errors import LabError
 from .protocol import fields, metric, require
 
 METRIC_IDS = ('work.items',)
+WORK_REPORT_TOOLS = ('perf-stat', 'native-resource')
 LIMITATION = ('Work definition, correctness and completeness are declared by the target; '
               'the consumer must validate them and cross-run equivalence.')
 

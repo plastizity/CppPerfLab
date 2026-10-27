@@ -326,6 +326,12 @@ def build_view(store, identifier, kind="run"):
                 for section in ('metrics','phases','phase_summaries','hotspots','quality','observations','call_edges','allocation_sites','facts','hypotheses','runtime_identities','sampling_profiles','thread_timelines','scheduler_timelines'):
                     view[section].extend({**v,'run_id':rid,'case_id':case_id,'variant':member['variant'],**({'profile_id':member['profile_id']} if 'profile_id' in member else {})} for v in source[section])
             else:
+                if kind=='study' and record['spec'].get('analysis')=='paired':
+                    source=run_view(run)
+                    member=next(m for m in record['runs'] if m['run_id']==rid)
+                    view['metrics'].extend({**group,'run_id':rid,'variant':member['variant'],
+                                            'block_id':member['block_id'],'slot':member['slot']}
+                                           for group in source['metrics'])
                 view['observations'].extend({**row,'run_id':rid} for row in run_observations(run)
                                             if row['evidence_state'] in ('Missing','Invalid','Unsupported'))
                 view['phase_summaries'].extend({**row,'run_id':rid,'evidence_id':evidence_id(rid,row['evidence'])} for row in run.get('phase_summaries',[]))
