@@ -102,7 +102,7 @@ def load_request(path):
     build["artifacts"] = [str((path.parent / p).resolve()) for p in build["artifacts"]]
     require(all(Path(p).is_file() for p in build["artifacts"]), "build artifact missing")
     measurement = request["measurement"]
-    fields(measurement, ("tool", "repetitions", "warmups", "timeout_seconds", "cpu_affinity", "options", "limits", "phase_report", "phase_import", "runtime_identity", "progress"),
+    fields(measurement, ("tool", "repetitions", "warmups", "timeout_seconds", "cpu_affinity", "options", "limits", "phase_report", "phase_import", "runtime_identity", "progress", "work_report"),
            ("tool", "repetitions", "warmups", "timeout_seconds", "options"), "measurement")
     require(isinstance(measurement["tool"], str), "tool must be a string")
     positive(measurement["repetitions"], "repetitions", integer=True)
@@ -134,6 +134,11 @@ def load_request(path):
             require(isinstance(spec['mapping_sha256'],str) and re.fullmatch(r'[0-9a-f]{64}',spec['mapping_sha256'])
                 and spec['mapping_sha256']==actual,'Pinned phase mapping hash does not match')
         spec['mapping_sha256']=actual
+    if 'work_report' in measurement:
+        from .work import validate_config
+        validate_config(measurement['work_report'])
+        require('phase_import' not in measurement or measurement['work_report']['path'] != measurement['phase_import']['source'],
+                'Work report and phase import source must use distinct files')
     if 'runtime_identity' in measurement:
         from .runtime_identity import validate_config
         validate_config(measurement['runtime_identity'],path.parent)

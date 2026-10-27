@@ -177,6 +177,38 @@
     },
     "execution_state_evidence": {
       "$ref": "#/$defs/collection"
+    },
+    "data_movement": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "columns",
+        "unknowns",
+        "possible_explanations",
+        "limitations"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "columns": {
+          "type": "object",
+          "required": [
+            "outcome",
+            "work",
+            "data_movement"
+          ]
+        },
+        "unknowns": {
+          "type": "array"
+        },
+        "possible_explanations": {
+          "type": "array"
+        },
+        "limitations": {
+          "type": "array"
+        }
+      }
     }
   },
   "required": [

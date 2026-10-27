@@ -5,7 +5,7 @@ consumer's declarations and validator cover every property of a workload.
 """
 import math
 
-from .metrics import DERIVATIONS, derive_sample, evidence_state
+from .metrics import ALL_DERIVATIONS, derive_all_sample, evidence_state
 
 
 LIMITATIONS = [
@@ -52,7 +52,7 @@ def _measurements(run, name, scope):
         return status, [], [], None, reason
     values, refs, meanings = [], [], set()
     for sample in samples:
-        metrics = derive_sample(sample) if name in DERIVATIONS else sample['metrics']
+        metrics = derive_all_sample(sample) if name in ALL_DERIVATIONS else sample['metrics']
         matched = [metric for metric in metrics if metric['name'] == name and
                    (scope is None or metric.get('scope') == scope)]
         if len(matched) != 1:
@@ -74,7 +74,8 @@ def _measurements(run, name, scope):
         meaning = (metric['unit'], metric['method'], metric['scope'], metric.get('event', ''),
                    metric.get('source_counter', ''), metric.get('operation_count'),
                    metric.get('counter_contract', ''), metric.get('tool', tool.get('id')),
-                   metric.get('tool_version', tool.get('version')))
+                   metric.get('tool_version', tool.get('version')),metric.get('work_definition_id',''),
+                   metric.get('work_unit',''),metric.get('capture_scope',''),metric.get('capture_window',''))
         meanings.add(meaning)
         values.append(value)
         refs.extend(_refs(run, [metric.get('evidence')]))
@@ -193,14 +194,22 @@ def _unit_work_windows_match(runs, claim, condition):
     name, scope = condition['metric'], condition.get('metric_scope')
     for run in runs:
         for sample in run['samples']:
-            primary_metrics = derive_sample(sample) if claim['metric'] in DERIVATIONS else sample['metrics']
-            work_metrics = derive_sample(sample) if name in DERIVATIONS else sample['metrics']
+            primary_metrics = derive_all_sample(sample) if claim['metric'] in ALL_DERIVATIONS else sample['metrics']
+            work_metrics = derive_all_sample(sample) if name in ALL_DERIVATIONS else sample['metrics']
             primary = [m for m in primary_metrics if m['name'] == claim['metric'] and
                        (claim.get('metric_scope') is None or m.get('scope') == claim['metric_scope'])]
             work = [m for m in work_metrics if m['name'] == name and
                     (scope is None or m.get('scope') == scope)]
             if len(primary) != 1 or len(work) != 1:
                 return False
+            if name == 'work.items':
+                if (work[0]['method']!='target-reported-invocation-work'
+                        or work[0].get('capture_scope')!='target_process_and_inherited_threads'
+                        or work[0].get('capture_window')!='whole-target-invocation'
+                        or any(primary[0].get(k)!=work[0].get(k) for k in ('capture_scope','capture_window'))
+                        or primary[0].get('evidence','').rpartition('/')[0] != work[0].get('evidence','').rpartition('/')[0]):
+                    return False
+                continue
             actual_scope = work[0]['scope']
             if name == 'phase.work':
                 if (claim['metric'] != 'phase.inclusive_time' or '; counter=' not in actual_scope
@@ -223,7 +232,7 @@ def _work(runs, condition, compare, claim):
         meanings = {item[3] for item in values}
         if len(meanings) != 1:
             status, reasons = 'INCONCLUSIVE', ['Work metric meanings differ across samples or runs.']
-        elif values[0][3][0] not in ('count', 'bytes', 'byte', 'FLOP'):
+        elif name!='work.items' and values[0][3][0] not in ('count', 'bytes', 'byte', 'FLOP'):
             status, reasons = 'INCONCLUSIVE', ['The declared work unit is not a currently verifiable work count.']
         elif any(number < 0 for item in values for number in item[1]):
             status, reasons = 'FAIL', ['Recorded work counts must be nonnegative.']

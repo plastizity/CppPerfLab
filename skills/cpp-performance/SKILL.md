@@ -87,6 +87,10 @@ For scientific pipeline stage counters or single-machine strong scaling, read
 [scientific experiments](references/scientific.md). These reuse Adapter/Study;
 solver-specific evidence and validation use the separate solver reference above.
 
+For grouped cache-event diagnostics and target-reported work per invocation, read
+[data movement](references/data-movement.md); require matching evidence boundaries
+and do not infer physical traffic or a memory-bound cause from cache ratios.
+
 For ordinary-program phase logs, lightweight scopes, execution budgets and separate
 acceptance/improvement conclusions, read
 [production phase evidence](references/production-phases.md).

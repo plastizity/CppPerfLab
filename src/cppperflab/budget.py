@@ -12,6 +12,10 @@ def execution_budget(request):
     candidates=[]
     for tool in (list(REGISTRY) if selected=='auto' else [selected]):
         adapter=REGISTRY[tool]
+        if 'work_report' in config and adapter.id != 'perf-stat':
+            candidates.append({'tool':tool,'eligible':False,
+                               'reason':{'category':'invalid_request','message':'Work report scope requires the non-batch perf-stat adapter'}})
+            continue
         try:
             adapter.validate(config['options'])
         except LabError as error:

@@ -135,9 +135,10 @@ def parse_google_benchmark(path, counters=None, stage=None):
                             "Iteration averages are independent repetition samples, not individual-iteration observations."]}
 
 
-def parse_stat(path, events):
+def parse_stat(path, events, event_groups=None):
     metrics, unavailable = [], []
     seen = set()
+    groups = {event: (f'group-{index}', group) for index, group in enumerate(event_groups or []) for event in group}
     for row in csv.reader(Path(path).read_text().splitlines(), delimiter=";"):
         if not row or row[0].startswith("#") or len(row) < 5:
             continue
@@ -153,10 +154,11 @@ def parse_stat(path, events):
             continue
         try:
             count = float(value)
+            runtime = float(row[3])
             running = float(row[4])
         except ValueError as error:
             raise LabError("parse_failed", "Malformed perf CSV", {"row": row}) from error
-        if not 0 <= running <= 100 or count < 0:
+        if not all(math.isfinite(v) for v in (count, runtime, running)) or not 0 <= running <= 100 or count < 0 or runtime < 0:
             raise LabError("parse_failed", "Invalid perf count or running coverage", {"row":row})
         name, unit, method = EVENTS[event]
         # perf --no-scale + CSV reports clock events in raw ns (unit empty).
@@ -170,14 +172,34 @@ def parse_stat(path, events):
         elif reported_unit:
             raise LabError("parse_failed", "Unexpected counter unit " + reported_unit)
         scope = "target-command elapsed including exec/startup" if event == "duration_time" else "target process and inherited threads; perf event modifiers retained in raw evidence"
+        extra = {'capture_scope': 'target_process_and_inherited_threads',
+                 'capture_window': 'whole-target-invocation'} if event == 'duration_time' else {}
+        if method == 'hardware-counter':
+            extra = {'capture_scope': 'target_process_and_inherited_threads',
+                     'capture_window': 'whole-target-invocation',
+                     'collection_evidence': 'perf-collection.json', 'raw_event': row[2].strip(),
+                     'raw_count': count, 'raw_unit': reported_unit,
+                     'counter_runtime_ns': runtime, 'counter_scaling': 'none'}
+            if event in groups:
+                extra.update(event_group=groups[event][0], group_events=list(groups[event][1]))
         metrics.append(metric(name, count, unit, method, scope, path.name,
                               event=row[2].strip(), running_percent=running,
-                              limitations=["unscaled count; incomplete running time is not extrapolated"] if running < 99 else []))
+                              limitations=["unscaled count; incomplete running time is not extrapolated"] if running < 99 else [], **extra))
     if seen != set(events):
         raise LabError("parse_failed", "Missing perf events", {"missing": sorted(set(events) - seen)})
+    for group in event_groups or []:
+        rows = [m for m in metrics if m.get('raw_event', '').partition(':')[0] in group]
+        missing = [item for item in unavailable if item['event'] in group]
+        status = ('UNSUPPORTED' if any('not supported' in item['reason'] for item in missing) else
+                  'INCONCLUSIVE' if missing or len(rows) != len(group) or any(
+                      m['running_percent'] < 99 or m['counter_runtime_ns'] <= 0 for m in rows) or
+                      len({m['counter_runtime_ns'] for m in rows}) != 1 or
+                      len({m['raw_event'].partition(':')[2] for m in rows}) != 1 else 'PASS')
+        for item in rows:
+            item['event_group_status'] = status
     return {"metrics": metrics, "unavailable_metrics": unavailable, "hotspots": [],
             "unavailable_observations": [{**item, "name":EVENTS[item['event']][0],
-                "evidence_state":"Unsupported" if "not supported" in item['reason'] else "Invalid",
+                "evidence_state":"Unsupported" if "not supported" in item['reason'] else "Missing" if "not counted" in item['reason'] else "Invalid",
                 "evidence_version":1, "value":None, "evidence":path.name} for item in unavailable]}
 
 
@@ -271,7 +293,7 @@ class Adapter:
         return list(self.metrics)
 
     def validate(self, options):
-        allowed = {"google-benchmark": {"filter", "min_time_seconds", "warmup_seconds", "counters", "stage"}, "hyperfine": set(), "perf-stat": {"events"}, "perf-record": {"frequency","call_graph","sample_trace","symbolizer","precheck","switch_events"}, "massif": set(), "callgrind": set(), "dhat": {"operation_count"}, "cachegrind": {"I1","D1","LL"}}[self.id]
+        allowed = {"google-benchmark": {"filter", "min_time_seconds", "warmup_seconds", "counters", "stage"}, "hyperfine": set(), "perf-stat": {"events", "event_groups"}, "perf-record": {"frequency","call_graph","sample_trace","symbolizer","precheck","switch_events"}, "massif": set(), "callgrind": set(), "dhat": {"operation_count"}, "cachegrind": {"I1","D1","LL"}}[self.id]
         require(not set(options) - allowed, self.id + ": unsupported options " + str(set(options) - allowed))
         if self.id=='dhat' and 'operation_count' in options:
             from .protocol import positive
@@ -286,6 +308,18 @@ class Adapter:
             events = options.get("events", ["duration_time"])
             require(isinstance(events, list) and bool(events) and all(isinstance(x, str) for x in events)
                     and len(events) == len(set(events)) and set(events) <= set(EVENTS), "unsupported or duplicate perf events")
+            if 'event_groups' in options:
+                groups = options['event_groups']
+                require(isinstance(groups, list) and bool(groups), 'event_groups must be a nonempty array')
+                used = set()
+                hardware = {event for event, (_, _, method) in EVENTS.items() if method == 'hardware-counter'}
+                for group in groups:
+                    require(isinstance(group, list) and len(group) >= 2 and all(isinstance(event, str) for event in group),
+                            'Each event group needs at least two hardware events')
+                    require(len(set(group)) == len(group) and set(group) <= hardware and set(group) <= set(events),
+                            'Event groups require distinct selected hardware events')
+                    require(not used.intersection(group), 'Event groups must not overlap')
+                    used.update(group)
         if self.id == "perf-record":
             from .sampling import validate_options
             validate_options(options)
@@ -330,8 +364,26 @@ class Adapter:
                     "--runs", str(repetitions), "--warmup", str(warmups),
                     "--export-json", str(directory / "hyperfine.json"), "--", shlex.join(command)]
         if self.id == "perf-stat":
-            return [exe, "stat", "--no-scale", "-x", ";", "-o", str(directory / "perf.csv"),
-                    "-e", ",".join(options.get("events", ["duration_time"])), "--"] + command
+            events = options.get('events', ['duration_time'])
+            groups = options.get('event_groups', [])
+            by_event = {event: index for index, group in enumerate(groups) for event in group}
+            emitted, selectors = set(), []
+            for event in events:
+                if event not in by_event:
+                    selectors.append(event)
+                elif by_event[event] not in emitted:
+                    index = by_event[event]
+                    selectors.append('{' + ','.join(groups[index]) + '}')
+                    emitted.add(index)
+            from .storage import write_json
+            write_json(directory / 'perf-collection.json', {'schema_version': 1,
+                       'scope': 'target_process_and_inherited_threads',
+                       'filters': 'perf default selection; actual modifiers retained in raw events',
+                       'capture_scope': 'target_process_and_inherited_threads',
+                       'capture_window': 'whole-target-invocation', 'counter_scaling': 'none',
+                       'events': events, 'groups': groups, 'strong_grouping_requested': bool(groups)})
+            return [exe, "stat", "--no-scale", "--no-big-num", "-x", ";", "-o", str(directory / "perf.csv"),
+                    "-e", ",".join(selectors), "--"] + command
         if self.id == "perf-record":
             method=options.get('call_graph','dwarf')
             args=[exe,"record","-e","cpu-clock","-F",str(options.get('frequency',99))]
@@ -364,7 +416,7 @@ class Adapter:
                 raise LabError(category, "Hyperfine failed", {"stderr": diagnostic})
             result = parse_hyperfine(directory / "hyperfine.json")
         elif self.id == "perf-stat":
-            result = parse_stat(directory / "perf.csv", options.get("events", ["duration_time"]))
+            result = parse_stat(directory / "perf.csv", options.get("events", ["duration_time"]), options.get('event_groups'))
         elif self.id=='cachegrind':result=parse_cachegrind(directory/'cachegrind.out')
         elif self.id=='dhat':result=parse_dhat(directory/'dhat.json',options.get('operation_count'))
         elif self.id=='callgrind':result=parse_callgrind(directory/'callgrind.out')
@@ -450,6 +502,12 @@ class Adapter:
         try:
             record = execute(self.prepare(command, target, options), target, timeout=20)
             parsed = self.parse(target, options, record)
+            if self.id == 'perf-stat' and options.get('event_groups'):
+                incomplete = [m for m in parsed['metrics'] if m.get('event_group_status', 'PASS') != 'PASS']
+                if incomplete:
+                    raise LabError('unavailable', 'Grouped perf events have insufficient running coverage',
+                                   {'events': [m['event'] for m in incomplete],
+                                    'running_percent': [m['running_percent'] for m in incomplete]})
             if self.id == "perf-record" and not parsed["hotspots"]:
                 raise LabError("parse_failed", "Sampling produced no parseable hotspots")
             extra = {}

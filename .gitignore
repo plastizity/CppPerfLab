@@ -7,6 +7,7 @@ __pycache__/
 vendor/
 results/
 workloads/*.json
+workloads/dme/
 tools.local.json
 .git-local/
 .aws/

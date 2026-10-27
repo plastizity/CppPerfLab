@@ -63,7 +63,8 @@
         "candidate",
         "validity",
         "workflow",
-        "execution_state_evidence"
+        "execution_state_evidence",
+        "data_movement"
       ]
     },
     "data": {
@@ -107,7 +108,8 @@
           "candidate",
           "validity",
           "workflow",
-          "execution_state_evidence"
+          "execution_state_evidence",
+          "data_movement"
         ]
       }
     },

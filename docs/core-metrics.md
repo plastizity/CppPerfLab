@@ -54,6 +54,14 @@ available N→2N ratios and source run IDs. Ratios/slopes of independently measu
 medians are Estimated; fitted models are Modeled. Mixed metric semantics are rejected.
 Neither result proves asymptotic complexity or a causal performance bottleneck.
 
+Grouped perf-stat counters and the target-reported `work.items` metric support the
+new Estimated diagnostics `cpu.cache_miss_ratio`, `cpu.cache_mpki`,
+`cpu.instructions_per_work` and `cpu.cache_misses_per_work`. They require the
+specific group, coverage, invocation scope and evidence conditions documented in
+the [data movement guide](../guides/data-movement.md); zero denominators are Missing.
+These ratios remain diagnostic and do not pass the existing Measured-only comparison
+gate. Their generic cache events do not measure physical bytes or establish causation.
+
 ## Policy and acceptance
 
 A policy file requires `schema_version: 1`, `min_samples` (integer >=2), `max_cv`

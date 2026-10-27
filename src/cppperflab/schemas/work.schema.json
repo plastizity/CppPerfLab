@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cppperflab:work:1",
+  "title": "CppPerfLab caller-reported completed target invocation work v1",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "definition_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "unit": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "scope": {
+      "const": "target-invocation"
+    },
+    "count_kind": {
+      "const": "observed"
+    },
+    "completed": {
+      "const": true
+    }
+  },
+  "required": [
+    "schema_version",
+    "definition_id",
+    "unit",
+    "count",
+    "scope",
+    "count_kind",
+    "completed"
+  ],
+  "additionalProperties": false
+}

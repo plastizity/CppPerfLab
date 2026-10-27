@@ -128,6 +128,12 @@ target_include_directories(validity_workload PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
 add_test(NAME validity_workload_protocol COMMAND ${PERFLAB_PYTHON}
   ${CMAKE_CURRENT_SOURCE_DIR}/oracle_validity.py test $<TARGET_FILE:validity_workload>)
 
+add_executable(data_movement data_movement.cpp)
+target_compile_features(data_movement PRIVATE cxx_std_11)
+target_compile_options(data_movement PRIVATE -Wall -Wextra -Werror)
+add_test(NAME data_movement_oracle COMMAND ${PERFLAB_PYTHON}
+  ${CMAKE_CURRENT_SOURCE_DIR}/oracle_data_movement.py $<TARGET_FILE:data_movement>)
+
 foreach(variant origin candidate)
   add_library(runtime_${variant} SHARED runtime_plugin.cpp)
   target_compile_features(runtime_${variant} PRIVATE cxx_std_11)

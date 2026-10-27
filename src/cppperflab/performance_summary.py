@@ -9,7 +9,7 @@ from .protocol import metric
 
 DIMENSIONS = {
     'work': {'title': '计算工作量', 'metrics': [
-        'cpu.instructions', 'algorithm.operations', 'algorithm.evaluations',
+        'work.items', 'cpu.instructions', 'algorithm.operations', 'algorithm.evaluations',
         'algorithm.iterations', 'algorithm.elements', 'solver.iterations', 'phase.work', 'phase.calls', 'callgrind.instructions', 'kernel.useful_flops']},
     'resources': {'title': '内存与资源', 'metrics': [
         'memory.heap_peak_observed', 'memory.rss_peak', 'memory.allocations',
@@ -17,10 +17,11 @@ DIMENSIONS = {
         'memory.heap_peak_live', 'memory.heap_end_live', 'memory.allocations_per_operation',
         'memory.allocated_bytes_per_operation', 'kernel.logical_input_bytes']},
     'execution': {'title': '执行行为', 'metrics': [
-        'cpu.cycles', 'cpu.cache_references', 'cpu.cache_misses', 'cpu.branches',
+        'cpu.cycles', 'cpu.cache_references', 'cpu.cache_misses', 'cpu.cache_miss_ratio',
+        'cpu.cache_mpki', 'cpu.cache_misses_per_work', 'cpu.branches',
         'cpu.branch_misses', 'pipeline.full_traversals', 'pipeline.rebuilds', 'pipeline.reuses', 'cpu.tlb_misses', 'os.page_faults', 'os.context_switches', 'control.call_count']},
     'instruction_quality': {'title': '指令执行质量', 'metrics': [
-        'cpu.ipc', 'simd.vector_instructions', 'simd.scalar_instructions',
+        'cpu.ipc', 'cpu.instructions_per_work', 'simd.vector_instructions', 'simd.scalar_instructions',
         'simd.lane_utilization', 'simd.operations_per_instruction',
         'compiler.vectorized_loops']},
     'timing': {'title': '耗时', 'metrics': [
@@ -35,6 +36,75 @@ METRIC_DIMENSION = {name: key for key, value in DIMENSIONS.items() for name in v
 def dimension(metric_name):
     # Unknown metrics remain visible without inventing an optimization objective.
     return METRIC_DIMENSION.get(metric_name, 'unclassified')
+
+
+def data_movement_projection(runs, comparisons=(), members=()):
+    """Project saved observations, without combining runs or inferring causes."""
+    from .metrics import run_observations, NUMERIC_STATES, DEFINITIONS
+    columns = {key: {'observations': [], 'comparisons': [], 'unavailable': []}
+               for key in ('outcome', 'work', 'data_movement')}
+    outcome = {'time.wall', 'time.iteration.wall', 'solver.total_time', 'pipeline.stage_wall',
+               'phase.inclusive_time', 'phase.self_time', 'workload.throughput'}
+    work = {'work.items', 'algorithm.operations', 'algorithm.iterations', 'algorithm.evaluations',
+            'algorithm.elements', 'solver.iterations', 'phase.work', 'phase.calls',
+            'cpu.instructions', 'kernel.useful_flops', 'cpu.instructions_per_work'}
+    movement = {'memory.copied_bytes', 'kernel.logical_input_bytes', 'pipeline.full_traversals',
+                'memory.reads', 'memory.writes', 'cpu.cache_references', 'cpu.cache_misses',
+                'cpu.cache_miss_ratio', 'cpu.cache_mpki', 'cpu.cache_misses_per_work'}
+    cache_model = {'cachegrind.data_reads', 'cachegrind.data_writes', 'cachegrind.d1_read_misses',
+                   'cachegrind.d1_write_misses', 'cachegrind.ll_read_misses',
+                   'cachegrind.ll_write_misses', 'cachegrind.d1_miss_rate', 'cachegrind.ll_data_mpki'}
+    def category(name):
+        if name in outcome: return 'outcome'
+        if name in work: return 'work'
+        if name in movement or name in cache_model: return 'data_movement'
+        return None
+    member_by_id = {row['run_id']: {k: row[k] for k in
+                    ('case_id','sample_id','profile_id','variant','block_id','slot','wave_id') if k in row}
+                    for row in members}
+    for run in runs:
+        rid = run['run_id']
+        for item in run_observations(run):
+            key = category(item['name'])
+            if key is None: continue
+            row = dict(item)
+            row['run_id'] = rid
+            row['source_tool'] = run.get('tool')
+            row['membership'] = member_by_id.get(rid, {})
+            row['evidence_id'] = rid + ':' + item['evidence'] if item.get('evidence') else None
+            sources = row.get('sources')
+            if isinstance(sources, list):
+                for source in sources:
+                    if source.get('evidence'): source['evidence_id'] = rid + ':' + source['evidence']
+            definition = DEFINITIONS.get(item['name'], {})
+            row['denominator'] = (sources[1] if isinstance(sources, list) and len(sources) == 2 else
+                                  {'scope': item.get('scope', 'unknown'),
+                                   'definition': definition.get('mathematical_definition', 'not declared')})
+            (columns[key]['observations'] if item['evidence_state'] in NUMERIC_STATES
+             else columns[key]['unavailable']).append(row)
+    for item in comparisons:
+        key = category(item['metric'])
+        if key is None: continue
+        row = {field: item[field] for field in ('comparison_id','baseline_id','candidate_id',
+               'baseline_run_ids','candidate_run_ids','case_id','profile_id','assessment_role',
+               'metric','metric_scope','unit','comparable','classification','sufficient_samples',
+               'stable_samples','baseline_median','candidate_median','change_fraction',
+               'bootstrap_95_percent_speedup','block_pairs','validity','claim_acceptance') if field in item}
+        classification = item.get('classification')
+        row['observed_change'] = ('observed_reduction' if classification == 'observed_improvement' else
+                                  'observed_increase' if classification == 'observed_regression' else 'inconclusive') \
+            if item.get('comparable') and item.get('sufficient_samples') and item.get('stable_samples') else 'inconclusive'
+        columns[key]['comparisons'].append(row)
+    unknowns = [{'column': key, 'evidence_state': 'Missing',
+                 'reason': 'No numeric observation is available for this column; see per-metric evidence states.'}
+                for key, value in columns.items() if not value['observations']]
+    return {'schema_version': 1, 'columns': columns, 'unknowns': unknowns, 'possible_explanations': [],
+            'limitations': ['Rows retain their original scope, state and per-sample evidence; they are not aggregated across runs.',
+                            'Reported work and logical bytes are target declarations, not physical DRAM traffic.',
+                            'Instrumented-run time is not a native timing baseline; inspect each source tool.',
+                            'Generic CPU cache events are not necessarily LLC or DRAM; Cachegrind is a model.',
+                            'No causal attribution, composite score, or independent benefit follows from these observations.',
+                            'A no-clear-change comparison does not establish equality.']}
 
 
 def comparison_finding(result):

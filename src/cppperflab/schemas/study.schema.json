@@ -614,6 +614,10 @@
                 "minItems": 1,
                 "items": {
                   "type": "object",
+                  "allOf": [{
+                    "if": {"properties": {"role": {"const": "diagnostic"}}, "required": ["role"]},
+                    "then": {"properties": {"gate": {"const": "informational"}}}
+                  }],
                   "properties": {
                     "id": {
                       "type": "string",
@@ -625,7 +629,8 @@
                         "stage",
                         "work",
                         "resource",
-                        "numerical"
+                        "numerical",
+                        "diagnostic"
                       ]
                     },
                     "metric": {

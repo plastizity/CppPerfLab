@@ -1,6 +1,8 @@
 """Metric semantics, evidence states and same-sample derivations; no execution."""
 import math
+import json
 from copy import deepcopy
+from pathlib import PurePosixPath
 
 from .protocol import require
 
@@ -16,6 +18,15 @@ DERIVATIONS = {
     'control.branch_mpki': ('cpu.branch_misses', 'cpu.instructions', 1000, 'miss/1000 instructions'),
     'control.branch_miss_rate': ('cpu.branch_misses', 'cpu.branches', 1, 'ratio'),
 }
+
+
+DME_DERIVATIONS = {
+    'cpu.cache_miss_ratio': ('cpu.cache_misses', 'cpu.cache_references', 1, 'ratio'),
+    'cpu.cache_mpki': ('cpu.cache_misses', 'cpu.instructions', 1000, 'miss/1000 instructions'),
+    'cpu.instructions_per_work': ('cpu.instructions', 'work.items', 1, 'count/work item'),
+    'cpu.cache_misses_per_work': ('cpu.cache_misses', 'work.items', 1, 'count/work item'),
+}
+ALL_DERIVATIONS = {**DERIVATIONS, **DME_DERIVATIONS}
 
 
 def definition(name, domains, category, unit, formula, scope, direction='none', operands=()):
@@ -48,6 +59,22 @@ for name, (num, den, factor, unit) in DERIVATIONS.items():
     DEFINITIONS[name] = definition(name, ['D06'] if name.startswith('cpu.') else ['D01'],
                                    'Efficiency' if name.startswith('cpu.') else 'Diagnostic', unit,
                                    f'{num} / {den} * {factor}', 'same sample, event filters and scope', operands=(num,den))
+for name, (num, den, factor, unit) in DME_DERIVATIONS.items():
+    is_work = den == 'work.items'
+    DEFINITIONS[name] = definition(name, ['D05', 'D06'], 'Efficiency' if is_work else 'Diagnostic', unit,
+        f'{num} / {den} * {factor}', 'same target invocation; grouped hardware counters' +
+        (' and completed target-reported work' if is_work else ''), operands=(num, den))
+    DEFINITIONS[name]['comparison_constraints'] += [
+        'same hardware event semantics, filters, CPU and capture window',
+        'same-sample grouped PMU evidence and no counter scaling',
+        '100% counter coverage and identical work definition/unit' if is_work else 'at least 99% grouped counter coverage']
+    DEFINITIONS[name]['reliability'] = ('Estimated from grouped unscaled raw counts; generic cache events are CPU dependent. '
+        'The cache-miss/reference ratio is not a probability and may exceed one.')
+DEFINITIONS['work.items'] = definition('work.items', ['D02', 'D05', 'D06'], 'Diagnostic',
+    'declared work unit', 'observed completed work reported by target for this invocation',
+    'whole target invocation; completed business work')
+DEFINITIONS['work.items']['comparison_constraints'] += ['same work definition, unit and completed-work semantics']
+
 for name, formula in [('algorithm.growth_ratio','median(metric at N2) / median(metric at N1)'),
                       ('algorithm.doubling_ratio','median(metric at 2N) / median(metric at N)'),
                       ('algorithm.empirical_exponent','log(T2/T1) / log(N2/N1)')]:
@@ -151,9 +178,15 @@ def catalog(registry, domain=None, metric_id=None):
         from .phases import METRIC_IDS as PHASE_METRICS
         phase_metric=name in PHASE_METRICS
         solver_metric=name in METRIC_IDS
-        providers = [key for key, adapter in registry.items() if (not adapter.batch if solver_metric or phase_metric else set(operands) <= set(adapter.metrics))]
+        providers = [key for key, adapter in registry.items() if (not adapter.batch if solver_metric or phase_metric else set(operands[:1] if name in DME_DERIVATIONS and operands[-1] == 'work.items' else operands) <= set(adapter.metrics))]
+        if name in DME_DERIVATIONS:
+            collection_method = 'same-invocation grouped PMU counters; explicit target work report also required' if operands[-1] == 'work.items' else 'same-invocation grouped PMU counters'
+        elif name == 'work.items':
+            collection_method = 'explicit target invocation work report'
+        else:
+            collection_method = 'explicit per-execution interval or declared summary phase report' if phase_metric else 'explicit post-sample solver validation' if solver_metric else 'same-sample derivation' if spec['operands'] else ('study' if name.startswith('parallel.') or name in ('algorithm.growth_ratio','algorithm.doubling_ratio','algorithm.empirical_exponent') else 'adapter')
         result.append({**spec, 'source_capability': operands,
-                       'providers': providers, 'collection_method': 'explicit per-execution interval or declared summary phase report' if phase_metric else 'explicit post-sample solver validation' if solver_metric else 'same-sample derivation' if spec['operands'] else ('study' if name.startswith('parallel.') or name in ('algorithm.growth_ratio','algorithm.doubling_ratio','algorithm.empirical_exponent') else 'adapter')})
+                       'providers': providers, 'collection_method': collection_method})
     return {'schema_version': 1, 'metrics': result,
             'note': 'Definitions and provider declarations are not availability claims; use tools probe and plan.'}
 
@@ -228,9 +261,113 @@ def derive_sample(sample):
     return out
 
 
+def _grouped_counter_error(item, minimum_coverage):
+    """Validate actual grouped PMU provenance, never infer it from event names."""
+    from .adapters import EVENTS
+    required = ('scope', 'tool', 'tool_version', 'event', 'raw_event', 'evidence',
+                'collection_evidence', 'capture_scope', 'capture_window', 'counter_scaling',
+                'event_group', 'group_events', 'event_group_status', 'counter_runtime_ns', 'running_percent')
+    if any(item.get(key) is None or item.get(key) == '' for key in required):
+        return 'Missing', 'grouped counter provenance is incomplete'
+    if item['event_group_status'] == 'UNSUPPORTED':
+        return 'Unsupported', 'hardware event group is unsupported'
+    group = item['group_events']
+    event = item['event'].partition(':')[0]
+    if (item['method'] != 'hardware-counter' or item['unit'] != 'count'
+            or item['event'] != item['raw_event'] or event not in EVENTS
+            or EVENTS[event][0] != item['name'] or item['capture_scope'] != 'target_process_and_inherited_threads'
+            or item['capture_window'] != 'whole-target-invocation' or item['counter_scaling'] != 'none'
+            or not isinstance(group, list) or len(set(group)) < 2 or event not in group
+            or item['event_group_status'] != 'PASS' or item['counter_runtime_ns'] <= 0
+            or not minimum_coverage <= item['running_percent'] <= 100 or item['value'] < 0):
+        return 'Invalid', 'grouped counter provenance, coverage or count is incompatible'
+    return None
+
+
+def derive_grouped_sample(sample):
+    """DME projections use only operands recorded in this exact invocation."""
+    out = []
+    for name, (numerator, denominator, factor, unit) in DME_DERIVATIONS.items():
+        operands = [[m for m in sample['metrics'] if m['name'] == key]
+                    for key in (numerator, denominator)]
+        sources = [deepcopy(v[0]) for v in operands if len(v) == 1]
+        state, reason = 'Estimated', None
+        is_work = denominator == 'work.items'
+        if any(not values for values in operands):
+            state, reason = 'Missing', 'required operand not collected in this sample'
+        elif any(len(values) != 1 for values in operands):
+            state, reason = 'Invalid', 'ambiguous duplicate operands'
+        else:
+            a, b = sources
+            states = [evidence_state(m) for m in sources]
+            if any(st != 'Measured' for st in states):
+                state = 'Invalid' if any(st in ('Invalid', 'Estimated', 'Modeled') for st in states) else ('Unsupported' if 'Unsupported' in states else 'Missing')
+                reason = 'operands must be actual measured evidence'
+            else:
+                errors = [_grouped_counter_error(a, 100 if is_work else 99)]
+                if not is_work:
+                    errors.append(_grouped_counter_error(b, 99))
+                error = next((x for x in errors if x and x[0] == 'Invalid'), None) or next((x for x in errors if x), None)
+                if error:
+                    state, reason = error
+                elif is_work:
+                    if any(not b.get(key) for key in ('work_definition_id', 'work_unit', 'counter_contract', 'evidence')):
+                        state, reason = 'Missing', 'target work provenance is incomplete'
+                    else:
+                        try:
+                            contract = json.loads(b['counter_contract'])
+                        except (ValueError, TypeError):
+                            contract = None
+                        if (b['method'] != 'target-reported-invocation-work' or b['scope'] != 'target invocation; completed business work'
+                                or b.get('capture_scope') != a['capture_scope'] or b.get('capture_window') != a['capture_window']
+                                or PurePosixPath(b['evidence']).parent != PurePosixPath(a['evidence']).parent
+                                or PurePosixPath(a['collection_evidence']).parent != PurePosixPath(a['evidence']).parent
+                                or b['unit'] != b['work_unit'] or b.get('count_kind') != 'observed' or b.get('completed') is not True
+                                or type(b['value']) is not int or b['value'] < 0
+                                or not isinstance(contract, dict) or contract.get('definition_id') != b['work_definition_id']
+                                or contract.get('unit') != b['work_unit'] or contract.get('scope') != 'target-invocation'
+                                or contract.get('count_kind') != 'observed' or contract.get('completed') is not True):
+                            state, reason = 'Invalid', 'target work definition, completion or capture scope is incompatible'
+                        unit = 'count/' + b['work_unit']
+                else:
+                    shared = ('scope', 'tool', 'tool_version', 'evidence', 'collection_evidence',
+                              'capture_scope', 'capture_window', 'counter_scaling', 'event_group',
+                              'group_events', 'counter_runtime_ns')
+                    if (any(a.get(key) != b.get(key) for key in shared)
+                            or a['event'].partition(':')[2] != b['event'].partition(':')[2]
+                            or any(m['event'].partition(':')[0] not in a['group_events'] for m in (a, b))):
+                        state, reason = 'Invalid', 'counter events do not share the same group, window, filter and evidence'
+                if state == 'Estimated' and b['value'] == 0:
+                    state, reason = 'Missing', 'zero denominator does not define a ratio'
+        limitations = ['Derived from unscaled grouped hardware counters; no causal conclusion.']
+        if name == 'cpu.cache_miss_ratio':
+            limitations.append('Generic cache events are CPU dependent; this ratio is not a probability and can exceed one.')
+        if is_work:
+            limitations.append('100% is the reported counter coverage and may be rounded; work is defined by the target.')
+        extra = {}
+        if is_work and len(operands[1]) == 1:
+            work = operands[1][0]
+            extra = {key: work[key] for key in ('work_definition_id', 'work_unit', 'counter_contract') if key in work}
+        if sources:
+            for key in ('tool', 'tool_version', 'capture_scope', 'capture_window', 'collection_evidence'):
+                if key in sources[0]:
+                    extra[key] = sources[0][key]
+        out.append(observation(name, state, value=sources[0]['value'] / sources[1]['value'] * factor if state == 'Estimated' else None,
+                               reason=reason, unit=unit, method='derived-grouped-hardware-counters',
+                               scope=sources[0]['scope'] if sources else 'unavailable',
+                               evidence=sources[0].get('evidence', '') if sources else '', sources=sources,
+                               sample_index=sample.get('index'), definition_version=1,
+                               derivation=DEFINITIONS[name]['mathematical_definition'], limitations=limitations, **extra))
+    return out
+
+
+def derive_all_sample(sample):
+    return derive_sample(sample) + derive_grouped_sample(sample)
+
+
 def metric_samples(run, name):
     return [m for s in run['samples'] for m in
-            (derive_sample(s) if name in DERIVATIONS else s['metrics']) if m['name']==name]
+            (derive_all_sample(s) if name in ALL_DERIVATIONS else s['metrics']) if m['name']==name]
 
 
 def run_observations(run):
@@ -245,6 +382,6 @@ def run_observations(run):
                 item['value'] = None
                 item.setdefault('reason','Legacy method has no verified evidence semantics')
             result.append(item)
-        result.extend({**m, 'run_id':run['run_id']} for m in derive_sample(sample))
+        result.extend({**m, 'run_id':run['run_id']} for m in derive_all_sample(sample))
     result.extend(run.get('unavailable_observations',[]))
     return result

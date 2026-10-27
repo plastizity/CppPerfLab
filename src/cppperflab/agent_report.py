@@ -244,7 +244,7 @@ def _follow_up(view, store_root, subject):
     prefix = ['perflab', 'analyze', view['record_id'], '--kind', view['view_kind']]
     def section(name):
         return {'section': name, 'argv': prefix + ['--section', name, '--store', str(store_root), '--json']}
-    names = ['conditions', 'comparisons', 'metrics', 'quality', 'evidence', 'validity']
+    names = ['conditions', 'comparisons', 'metrics', 'quality', 'evidence', 'validity', 'data_movement']
     if view.get('workflow') is not None:names.append('workflow')
     if view.get('execution_state_evidence'):names.append('execution_state_evidence')
     if any(row['evidence_state'] in ('Missing','Invalid','Unsupported') for row in view['observations']):
@@ -268,6 +268,24 @@ def _follow_up(view, store_root, subject):
         result.append({'section': 'conditions', 'argv': ['perflab', 'analyze', condition['example_run_id'],
             '--kind', 'run', '--section', 'conditions', '--store', str(store_root), '--json']})
     return result
+
+
+def _data_movement(view, limit):
+    section = view['data_movement']
+    columns = {}
+    for name, column in section['columns'].items():
+        columns[name] = {key: _collection(column[key][:limit], len(column[key]))
+                         for key in ('observations', 'unavailable')}
+        comparisons = []
+        for original in column['comparisons'][:limit]:
+            row = dict(original)
+            if 'block_pairs' in row:
+                pairs=row['block_pairs']
+                row['block_pairs']=_collection(pairs[:limit],len(pairs))
+            comparisons.append(row)
+        columns[name]['comparisons']=_collection(comparisons,len(column['comparisons']))
+    return {'schema_version': 1, 'columns': columns, 'unknowns': section['unknowns'],
+            'possible_explanations': section['possible_explanations'], 'limitations': section['limitations']}
 
 
 def build_agent_report(view, store_root, limit=5):
@@ -302,6 +320,7 @@ def build_agent_report(view, store_root, limit=5):
             'view_kind': view['view_kind'], 'status': view['status'], 'error': _error(view['error']),
             'optimization_accepted': False, 'subject': subject, 'assessment': _assessment(view),
             'validity':view['validity'], 'workflow':_workflow(view), 'execution_state_evidence':_state_evidence(view,limit),
+            'data_movement':_data_movement(view,limit),
             'comparisons': _collection([_comparison(row) for row in selected], len(comparisons)),
             'metrics': _collection([_metric(group) for group in groups[:limit]], len(groups)),
             'hotspots': _collection(hotspots, len(view['hotspots'])),

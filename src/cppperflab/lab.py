@@ -26,26 +26,44 @@ def probe_tools(store, tool_ids=None, options=None, target=None):
     return result
 
 
-def _missing_claim_metrics(request, adapter):
-    claim=request.get('claim')
-    if claim is None:return set()
+def configured_metric_ids(request, adapter):
+    """Metric candidates from configured inputs; runtime coverage still needs verification."""
     supplied=set(adapter.configured_metrics(request['measurement']['options']))
-    from .metrics import DERIVATIONS
-    supplied.update(name for name,(left,right,_,_) in DERIVATIONS.items() if left in supplied and right in supplied)
     if 'sample_validation' in request['correctness'] and not adapter.batch:
         from .solver import METRIC_IDS
         supplied.update(METRIC_IDS)
     if 'phase_report' in request['measurement'] and not adapter.batch:
         from .phases import METRIC_IDS
         supplied.update(METRIC_IDS)
+    if 'work_report' in request['measurement'] and adapter.id == 'perf-stat':
+        from .work import METRIC_IDS
+        supplied.update(METRIC_IDS)
+    from .metrics import DERIVATIONS, DME_DERIVATIONS
+    supplied.update(name for name,(left,right,_,_) in DERIVATIONS.items() if left in supplied and right in supplied)
+    if adapter.id == 'perf-stat':
+        groups=[{EVENTS[event][0] for event in group} for group in request['measurement']['options'].get('event_groups', [])]
+        for name,(left,right,_,_) in DME_DERIVATIONS.items():
+            if left in supplied and right in supplied:
+                group_required={left} if right == 'work.items' else {left,right}
+                if any(group_required <= group for group in groups):
+                    supplied.add(name)
+    return supplied
+
+
+def _missing_claim_metrics(request, adapter):
+    claim=request.get('claim')
+    if claim is None:return set()
+    supplied=configured_metric_ids(request, adapter)
     needed={claim['metric']}|{row['metric'] for row in claim['conditions'] if row['required'] and row['source']=='work_metric'}
     return needed-supplied
 
 
 def plan(request, store):
     from .budget import execution_budget
-    budget=execution_budget(request)
     selected = request["measurement"]["tool"]
+    if 'work_report' in request['measurement'] and selected not in ('auto', 'perf-stat'):
+        raise LabError('invalid_request', 'Work reports require the non-batch perf-stat adapter')
+    budget=execution_budget(request)
     if selected != "auto" and selected not in REGISTRY:
         raise LabError("invalid_request", "Unknown adapter " + selected)
     ids = list(REGISTRY) if selected == "auto" else [selected]
@@ -94,13 +112,7 @@ def plan(request, store):
             reasons.append('sampling_precheck_prerequisites_unavailable')
         goal = request.get("goal")
         if goal:
-            configured_metrics = adapter.configured_metrics(request['measurement']['options'])
-            if sample_validation and not adapter.batch:
-                from .solver import METRIC_IDS
-                configured_metrics += list(METRIC_IDS)
-            if 'phase_report' in request['measurement'] and not adapter.batch:
-                from .phases import METRIC_IDS as PHASE_METRICS
-                configured_metrics += list(PHASE_METRICS)
+            configured_metrics = configured_metric_ids(request, adapter) if tool in eligible else set()
             missing = set(goal["metrics"]) - set(configured_metrics)
             if missing:
                 reasons.append("missing_metrics: " + ", ".join(sorted(missing)))
@@ -260,6 +272,8 @@ def run(request, store, *, measurement_hook=None):
             names = request.get('goal', {}).get('metrics', [])
             if not names and configured in REGISTRY:
                 names = REGISTRY[configured].configured_metrics(request['measurement']['options'])
+            if 'work_report' in request['measurement']:
+                names=list(dict.fromkeys([*names, 'work.items']))
             if 'claim' in request:
                 names=list(dict.fromkeys([*names,request['claim']['metric'],
                     *(c['metric'] for c in request['claim']['conditions'] if c['required'] and c['source']=='work_metric')]))
@@ -459,6 +473,11 @@ def run(request, store, *, measurement_hook=None):
                     parsed.setdefault('unavailable_observations',[]).extend(phases['unavailable_observations'])
                     parsed.setdefault('limitations',[]).extend(phases['limitations'])
                     write_json(folder/'normalized.json',parsed)
+                if 'work_report' in config:
+                    from .work import normalize, LIMITATION
+                    parsed['metrics'].append(normalize(folder/config['work_report']['path'], config['work_report']))
+                    parsed.setdefault('limitations',[]).append(LIMITATION)
+                    write_json(folder/'normalized.json',parsed)
                 if 'sampling_profile' in parsed:
                     archive_sampling_profile(result,parsed['sampling_profile'],folder,directory,'measurement',index)
                 if 'scheduler_profile' in parsed:
@@ -472,6 +491,8 @@ def run(request, store, *, measurement_hook=None):
                 for metrics in parsed.get("samples", [parsed["metrics"]]):
                     for item in metrics:
                         item["evidence"] = str(folder.relative_to(directory) / item["evidence"])
+                        if 'collection_evidence' in item:
+                            item['collection_evidence'] = str(folder.relative_to(directory) / item['collection_evidence'])
                         item["tool"] = selected
                         item["tool_version"] = result["tool"]["version"]
                     result["samples"].append({"index": len(result["samples"]), "metrics": metrics})
@@ -528,8 +549,8 @@ def run(request, store, *, measurement_hook=None):
             for path, original in items.items():
                 if sha256(path) != original:
                     raise LabError("invalid_request", category + " changed during measurement", {"path": path})
-        from .metrics import derive_sample
-        result["derived_observations"] = [m for sample in result["samples"] for m in derive_sample(sample)]
+        from .metrics import derive_all_sample
+        result["derived_observations"] = [m for sample in result["samples"] for m in derive_all_sample(sample)]
         result["summary"] = summarize(result["samples"])
         result["status"] = "completed"
     except KeyboardInterrupt:

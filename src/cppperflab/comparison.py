@@ -3,7 +3,7 @@ import random
 import statistics
 import math
 
-from .metrics import metric_samples, evidence_state, DEFINITIONS, DERIVATIONS
+from .metrics import metric_samples, evidence_state, DEFINITIONS, ALL_DERIVATIONS
 from .protocol import require, fields
 
 from .errors import LabError
@@ -70,7 +70,7 @@ def request_differences(a,b,allow_command_change=False,varying_parameter=None):
     same('sample_validation_contract',a['correctness'].get('sample_validation'),b['correctness'].get('sample_validation'))
     for key in ('claim','execution_state'):
         same(key,a.get(key),b.get(key))
-    for key in ('cpu_affinity','options','warmups','limits','phase_report'):
+    for key in ('cpu_affinity','options','warmups','limits','phase_report','work_report'):
         same('measurement.'+key,a['measurement'].get(key),b['measurement'].get(key))
     same('measurement.progress',a['measurement'].get('progress',False),b['measurement'].get('progress',False))
     for key in ('environment','cwd'):same('target.'+key,a['target'].get(key),b['target'].get(key))
@@ -155,7 +155,8 @@ def validated_samples(a, b, metric_name="time.wall", allow_command_change=False,
         same("tool." + key, a["tool"][key], b["tool"][key])
     for key in ("os", "kernel", "machine", "hostname", "cpu_model", "cpu_flags", "allowed_cpus", "governor"):
         same("environment." + key, a["environment"][key], b["environment"][key])
-    if metric_name not in DERIVATIONS:
+    same('environment.microcode',a['environment'].get('microcode'),b['environment'].get('microcode'))
+    if metric_name not in ALL_DERIVATIONS:
         for r in (a,b):
             if any(sum(m['name']==metric_name and (metric_scope is None or m['scope']==metric_scope) for m in sample['metrics'])!=1 for sample in r['samples']):
                 differences.append({'condition':'missing_or_duplicate_metric_in_sample', 'run_id':r['run_id'], 'metric':metric_name})
@@ -173,7 +174,8 @@ def validated_samples(a, b, metric_name="time.wall", allow_command_change=False,
         meanings = [{(m["unit"], m["method"], m["scope"], m.get("event", ""),
                        tuple((v["name"],v["unit"],v["method"],v["scope"],v.get("event",""))
                              for v in (m.get("sources",[]) if isinstance(m.get("sources",[]),list) else [])),
-                       m.get('source_counter',''), m.get('operation_count'), m.get('counter_contract','')) for m in values} for values in collections]
+                       m.get('source_counter',''), m.get('operation_count'), m.get('counter_contract',''),
+                       m.get('work_definition_id',''),m.get('work_unit','')) for m in values} for values in collections]
         same("metric_semantics", sorted(meanings[0]), sorted(meanings[1]))
         if any(len(x) != 1 for x in meanings):
             differences.append({"condition": "mixed_metric_semantics"})

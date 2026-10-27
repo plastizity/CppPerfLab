@@ -75,6 +75,48 @@ def line_plot(series, x_label, y_label, *, log=False):
     return legend + ''.join(svg)
 
 
+def data_movement_section(view):
+    section=view['data_movement']
+    content=['<p class="notice">以下为各次采集的结果、工作量和数据搬运观测。范围、分母及证据分别列示；并列不证明因果。插桩运行耗时不能代替原生运行耗时。</p>']
+    def tool_text(tool):
+        if tool is None: return '未记录'
+        return ' · '.join(str(tool[key]) for key in ('id','version') if tool.get(key)) or '未记录'
+    def denominator_text(denominator):
+        if 'name' not in denominator:
+            return str(denominator.get('scope','未声明'))
+        parts=[str(denominator['name'])]
+        if 'value' in denominator: parts.append(number(denominator['value']))
+        for key in ('unit','evidence_state','work_definition_id'):
+            if denominator.get(key) is not None: parts.append(str(denominator[key]))
+        return ' · '.join(parts)
+    def membership_text(row):
+        member=row['membership']
+        return ' / '.join(str(member[key]) for key in ('variant','block_id','slot') if key in member) or '未声明'
+    for key,title in [('outcome','结果'),('work','工作量'),('data_movement','数据搬运')]:
+        column=section['columns'][key]
+        content.append('<h3>'+esc(title)+'</h3>')
+        if column['comparisons']:
+            content.append(table(['指标','基线中位数','候选中位数','单位','观察变化'],[
+                [esc(row['metric']),esc(number(row.get('baseline_median'))),
+                 esc(number(row.get('candidate_median'))),esc(row.get('unit','未声明')),
+                 esc(row['observed_change'] if row['comparable'] else 'inconclusive')]
+                for row in column['comparisons']]))
+        samples=table(['指标','绝对值','单位','状态','范围 / 分母','variant / block / slot',
+                       'Run / 样本','工具','证据'],[
+            [esc(row['name']),esc(row['value']),esc(row.get('unit','未声明')),
+             esc(row['evidence_state']),esc(row.get('scope','未声明'))+' / '+esc(denominator_text(row['denominator'])),
+             esc(membership_text(row)),esc(row['run_id'])+' / '+esc(row.get('sample_index','未声明')),
+             esc(tool_text(row['source_tool'])),esc(row['evidence_id'])] for row in column['observations']])
+        content.append('<details><summary>样本明细</summary>'+samples+'</details>')
+        content.append(details('完整观测元数据',column['observations']))
+        content.append(details('比较与来源（含配对成员）',column['comparisons']))
+        content.append(details('缺失、无效或不支持',column['unavailable']))
+        if not column['observations']:
+            content.append('<p>无可用数值；缺失不等于零或工具不支持。</p>')
+    content.append(details('解释限制',section['limitations']))
+    return ''.join(content)
+
+
 def metrics_section(view):
     result = []
     for group in view["metrics"]:
@@ -479,6 +521,7 @@ def render_html(view, store, output, *, agent_report=None):
     if agent_report is not None:
         sections.insert(0,('decision-summary','结论摘要',agent_summary_section(agent_report)))
     sections.append(('validity','实验有效性与阶段',validity_section(view)))
+    sections.append(('data-movement','结果、工作量与数据搬运',data_movement_section(view)))
     if view.get('lifecycle') is not None or view.get('candidate') is not None:
         sections.append(('lifecycle','实验进度与候选记录',lifecycle_section(view)))
     if view['view_kind'] in ('run', 'summary'):

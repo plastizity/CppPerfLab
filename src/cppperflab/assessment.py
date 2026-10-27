@@ -14,7 +14,7 @@ from .protocol import fields, load_request, positive, require
 from .replay import bind_sample
 from .storage import utc, write_json
 
-ROLES=('end_to_end','stage','work','resource','numerical')
+ROLES=('end_to_end','stage','work','resource','numerical','diagnostic')
 GATES=('informational','non_regression','performance_target','statistics','correctness')
 
 
@@ -67,8 +67,12 @@ def load_assessment(spec,base,store):
             require(descriptor['role'] in ROLES and descriptor['gate'] in GATES,'Invalid comparison role/gate')
             require(isinstance(descriptor['metric'],str) and bool(descriptor['metric']),'Metric ID required')
             require('metric_scope' not in descriptor or isinstance(descriptor['metric_scope'],str) and bool(descriptor['metric_scope']),'Invalid exact metric scope')
-            expected_dimension={'end_to_end':'timing','stage':'timing','work':'work','resource':'resources','numerical':'correctness'}[descriptor['role']]
-            require(dimension(descriptor['metric'])==expected_dimension,'Metric meaning does not match the declared assessment role')
+            if descriptor['role']=='diagnostic':
+                require(descriptor['gate']=='informational' and dimension(descriptor['metric']) in ('execution','instruction_quality'),
+                        'Diagnostic comparisons require an informational execution/efficiency metric')
+            else:
+                expected_dimension={'end_to_end':'timing','stage':'timing','work':'work','resource':'resources','numerical':'correctness'}[descriptor['role']]
+                require(dimension(descriptor['metric'])==expected_dimension,'Metric meaning does not match the declared assessment role')
             descriptor['policy']=validate_policy(descriptor['policy'])
             require(descriptor['gate']!='performance_target' or 'min_speedup' in descriptor['policy'],'Performance target gate requires a declared target')
             if descriptor['role']=='end_to_end':

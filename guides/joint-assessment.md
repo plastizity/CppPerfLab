@@ -83,6 +83,23 @@ against existing metric dimensions, not tool-specific knowledge:
 | `work` | Actual recorded operations, calls, iterations or other work semantics |
 | `resource` | Heap, RSS, allocations or other resource cost |
 | `numerical` | Numerical error/residual evidence with its existing validation contract |
+| `diagnostic` | Informational execution or instruction-quality metrics, such as raw cache events |
+
+`diagnostic` requires `gate: "informational"` and an `execution` or
+`instruction_quality` metric dimension; the existing `resource` role is
+unchanged. Estimated derived ratios remain per-Run diagnostic observations:
+the existing Comparison acceptance requires Measured input and does not turn
+them into a passing score. Native and instrumented profiles retain separate
+samples and scopes. See [data movement diagnostics](data-movement.md).
+
+The synthetic same-binary control Study `20261027T033745-1c304d8be760`
+completed 8 Runs and 8 formal samples across independent native and counts
+profiles. Its `phase.work` was present while `cpu.cache_misses_per_work` remained
+Missing: phase work did not become a whole-process denominator. Evidence is in
+`.perflab/validations/dme-20261027/joint-verification.json`. This two-block
+control checks integration only. Although the recorded end-to-end decision says
+`SUPPORTED_IMPROVEMENT`, baseline and candidate are the same binary, so the
+finite-run observation is not evidence of a code optimization.
 
 At least one work comparison is required. Counters describe only recorded work;
 they cannot prove that all meaningful simulation work stayed constant. All input

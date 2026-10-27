@@ -23,7 +23,8 @@ def discover():
     fields = {k.strip(): v.strip() for k, v in fields.items()}
     return {"os": platform.system(), "kernel": platform.release(), "machine": platform.machine(),
             "hostname": platform.node(), "wsl": "microsoft" in platform.release().lower(),
-            "cpu_model": fields.get("model name"), "cpu_flags": fields.get("flags", "").split(),
+            "cpu_model": fields.get("model name"), "microcode": fields.get("microcode"),
+            "cpu_flags": fields.get("flags", "").split(),
             "logical_cpus": os.cpu_count(),
             "allowed_cpus": sorted(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else None,
             "numa_nodes": read_optional("/sys/devices/system/node/online"),

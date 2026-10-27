@@ -139,6 +139,8 @@ def parser():
             q.add_argument("operation", choices=("list", "probe"))
             q.add_argument("--tool", choices=tuple(REGISTRY))
             q.add_argument("--events", help="perf-stat event list for capability probe")
+            q.add_argument("--event-group", action="append", default=[],
+                           help="strong perf-stat event group, comma separated; repeat for multiple groups")
         if name == "workloads":
             q.add_argument("operation", choices=("list",))
             q.add_argument("--directory", type=Path, default=Path("workloads"))
@@ -146,7 +148,7 @@ def parser():
             q.add_argument("name")
             q.add_argument("run_id")
         if name == "schema":
-            q.add_argument("kind", choices=("request", "result", "envelope", "study", "analysis", "query", "tools", "summary", "metrics", "evidence", "policy", "solver", "solver-validation", "phases", "sample-manifest", "collection", "runtime-identity", "sampling", "run-status", "study-status", "activity-timeline", "phase-mapping", "phase-summary", "scheduler-timeline", "agent-report", "claim", "execution-state", "state-verification", "validity", "workflow", "workflow-result"))
+            q.add_argument("kind", choices=("request", "result", "envelope", "study", "analysis", "query", "tools", "summary", "metrics", "evidence", "policy", "solver", "solver-validation", "phases", "sample-manifest", "collection", "runtime-identity", "sampling", "run-status", "study-status", "activity-timeline", "phase-mapping", "phase-summary", "scheduler-timeline", "agent-report", "claim", "execution-state", "state-verification", "validity", "workflow", "workflow-result", "work"))
     return p
 
 
@@ -248,9 +250,13 @@ def dispatch(args):
         if args.operation == "list":
             return {"tools": [a.describe() for a in REGISTRY.values()],
                     "note": "Descriptors are not proof of availability; run tools probe"}
-        if args.events and args.tool != "perf-stat":
-            raise LabError("invalid_request", "--events requires --tool perf-stat")
+        if (args.events or args.event_group) and args.tool != "perf-stat":
+            raise LabError("invalid_request", "--events/--event-group require --tool perf-stat")
+        if args.event_group and not args.events:
+            raise LabError("invalid_request", "--event-group requires an explicit --events list")
         options = {"perf-stat": {"events": args.events.split(",")}} if args.events else None
+        if args.event_group:
+            options['perf-stat']['event_groups']=[group.split(',') for group in args.event_group]
         return probe_tools(store, [args.tool] if args.tool else None, options)
     if args.command == "budget":
         from .budget import execution_budget

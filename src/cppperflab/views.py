@@ -4,16 +4,16 @@ No measurement or statistical estimation lives here. Run summaries, comparisons
 and empirical fits are produced by the existing measurement/analysis modules.
 """
 from collections import Counter
-from .metrics import run_observations, evidence_state, NUMERIC_STATES, DERIVATIONS
+from .metrics import run_observations, evidence_state, NUMERIC_STATES, ALL_DERIVATIONS
 from .lab import summarize
 from .comparison import analyze, MIN_COMPARISON_SAMPLES, MAX_COMPARISON_CV
 from .errors import LabError
 from .protocol import sha256
-from .performance_summary import summarize_performance
+from .performance_summary import summarize_performance, data_movement_projection
 
 
 SECTIONS = ("overview", "conditions", "summary", "metrics", "hotspots", "quality", "evidence",
-            "facts", "hypotheses", "growth", "comparisons", "observations", "call_edges", "allocation_sites", "phases", "phase_summaries", "runtime_identities", "sampling_profiles", "thread_timelines", "scheduler_timelines", "lifecycle", "candidate", "validity", "workflow", "execution_state_evidence")
+            "facts", "hypotheses", "growth", "comparisons", "observations", "call_edges", "allocation_sites", "phases", "phase_summaries", "runtime_identities", "sampling_profiles", "thread_timelines", "scheduler_timelines", "lifecycle", "candidate", "validity", "workflow", "execution_state_evidence", "data_movement")
 
 
 def evidence_id(run_id, path):
@@ -44,7 +44,8 @@ def base_view(kind, identifier, status, error):
             "overview": {}, "conditions": {}, "metrics": [], "hotspots": [],
             "quality": [], "evidence": [], "facts": [], "hypotheses": [],
             "growth": [], "comparisons": [], "limitations": [], "summary": {}, "observations": [], "call_edges": [], "allocation_sites": [], "phases": [], "phase_summaries": [], "runtime_identities": [], "sampling_profiles": [], "thread_timelines": [], "scheduler_timelines": [], "source_records": [], "lifecycle":None, "candidate":None,
-            "validity":recorded_validity({}), "workflow":None, "execution_state_evidence":[]}
+            "validity":recorded_validity({}), "workflow":None, "execution_state_evidence":[],
+            "data_movement":data_movement_projection([])}
 
 
 def source_record(run):
@@ -120,8 +121,8 @@ def run_view(result):
                 view["quality"].append({"code": "incomplete_counter", "severity": "review",
                                         "metric": metric["name"], "running_percent": metric["running_percent"],
                                         "message": "Unscaled count does not represent full execution."})
-    derived = [m for m in view['observations'] if m['name'] in DERIVATIONS]
-    for name in DERIVATIONS:
+    derived = [m for m in view['observations'] if m['name'] in ALL_DERIVATIONS]
+    for name in ALL_DERIVATIONS:
         rows = [m for m in derived if m['name']==name]
         valid = [m for m in rows if m['evidence_state'] in NUMERIC_STATES]
         summaries = summarize([{'metrics':[m]} for m in valid])
@@ -129,7 +130,8 @@ def run_view(result):
             view['metrics'].append({'summary':summary, 'samples':[
                 {'index':m['sample_index'], 'value':m['value'], 'evidence_state':m['evidence_state'],
                  'evidence_id':evidence_id(rid,m['evidence']), 'sources':m['sources']}
-                for m in valid if m['evidence_state']==summary['evidence_state'] and m['scope']==summary['scope']]})
+                for m in valid if m['evidence_state']==summary['evidence_state']
+                and all(m[k]==summary[k] for k in ('name','unit','method','scope'))]})
         for m in rows:
             if m['evidence_state'] not in NUMERIC_STATES:
                 view['quality'].append({'code':'derived_metric_unavailable', 'metric':name,
@@ -157,6 +159,7 @@ def run_view(result):
         "Correctness passed means the declared command exited zero within its stated coverage."]))
     if 'sampling_precheck' in result:view['conditions']['sampling_precheck']=result['sampling_precheck']
     view['summary'] = summarize_performance([result])
+    view['data_movement'] = data_movement_projection([result])
     return view
 
 
@@ -335,6 +338,7 @@ def build_view(store, identifier, kind="run"):
         view['conditions']['source_candidates']=[notes(store,r['run_id']) for r in runs]
     view['source_records']=[source_record(run) for run in runs]
     view['summary'] = summarize_performance(runs, view['comparisons'], view['growth'])
+    view['data_movement'] = data_movement_projection(runs, view['comparisons'], record['runs'] if kind == 'study' else ())
     if kind=='study' and record['spec'].get('analysis')=='assessment':view['summary']['assessment']=record['assessment']
     return view
 
@@ -359,6 +363,7 @@ def summary_view(store, record):
         view['limitations'].extend(source['limitations'])
     view['comparisons'] = comparisons
     view['summary'] = summarize_performance(runs, comparisons)
+    view['data_movement'] = data_movement_projection(runs, comparisons)
     view['limitations'] = list(dict.fromkeys(view['limitations'] + view['summary']['limitations']))
     return view
 
