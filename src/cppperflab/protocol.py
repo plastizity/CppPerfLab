@@ -57,7 +57,7 @@ def load_request(path):
         request = json.loads(path.read_text(), parse_constant=lambda s: (_ for _ in ()).throw(ValueError(s)))
     except (OSError, ValueError) as error:
         raise LabError("invalid_request", "Cannot read JSON request", {"reason": str(error)}) from error
-    fields(request, ("schema_version", "name", "workload", "target", "measurement", "correctness", "goal"),
+    fields(request, ("schema_version", "name", "workload", "target", "measurement", "correctness", "goal", "claim", "execution_state"),
            ("schema_version", "name", "workload", "target", "measurement", "correctness"), "request")
     if type(request["schema_version"]) is not int or request["schema_version"] != 1:
         raise LabError("unsupported_schema", "Only request schema_version=1 is supported")
@@ -160,6 +160,9 @@ def load_request(path):
         require(goal["max_overhead"] in ("low", "moderate", "high"), "invalid overhead budget")
         require(type(goal["allow_instrumentation"]) is bool, "allow_instrumentation must be boolean")
     require(measurement["tool"] != "auto" or "goal" in request, "auto selection requires a capability goal")
+    from .contracts import validate_claim, validate_execution_state
+    if 'claim' in request:validate_claim(request['claim'])
+    if 'execution_state' in request:validate_execution_state(request['execution_state'],path.parent)
     return request
 
 

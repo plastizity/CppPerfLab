@@ -9,8 +9,10 @@ CppPerfLab，也不要求修改业务源码。本指南描述已实现接口；�
 
 接入前先确定：**使用方定义什么是有效任务、允许哪些变化、什么结果值得接受；
 平台负责按明确范围测量执行成本、保存证据并执行预先约定的验收规则。平台的
-通过结论只覆盖已声明且已执行的检查。** 以下是责任
-和操作约定，不是新增 JSON 字段，也不表示完整 Claim 或执行状态契约已由机器实现。
+通过结论只覆盖已声明且已执行的检查。** 以下责任约定不等同于自动验证：
+使用方可选择配置平台支持的 Claim、执行状态动作及分层 Study 来源，具体字段和
+检查范围见[实验有效性指南](guides/experiment-validity.md)。声明本身并非证据，
+平台也不能自动证明因果关系、任意状态等价或测量独立性。
 
 “使用方”包括需求负责人、项目维护者和算法维护者；可以由同一人或 Agent
 承担多个角色，但责任不能因使用平台而转移。
@@ -68,9 +70,10 @@ oracle 时，也可完成该范围的测量与比较；缺少工作/状态证据
 
 即使已记录计数相同，也只能说明这些计数相同，不能证明所有实际工作一致。
 
-完整 Claim 冻结、生产程序状态验证、快照恢复和探索/独立确认数据隔离仍是后续
-建设。当前机制不提供这些能力的隐含保证；项目声明、平台观察和无法验证的部分
-需要分别说明。
+可选 Claim、执行状态动作和探索/确认来源记录见[实验有效性指南](guides/experiment-validity.md)。
+状态动作与消费者验证各有范围，当前不提供通用计算状态快照恢复；新的 Run ID
+和冻结记录也不证明统计独立或对新输入泛化。项目声明、平台观察和无法验证的
+部分需要分别说明。
 
 ## 安装与快速入口
 
@@ -139,7 +142,7 @@ perflab report RUN_ID --format agent --store /absolute/consumer-lab/store --json
 |---|---|
 | 环境、指标和报告 | [本地依赖](guides/downloads.md)、[D01–D05 分析](guides/domains-1-5.md)、[多指标总结](guides/performance-summary.md)、[报告与查询](guides/analysis-views.md) |
 | 阶段与日志 | [阶段观测及预算](guides/phase-observation.md)、[格式/关键字映射](guides/phase-log-mapping.md) |
-| 对照与联合验收 | [串行配对](guides/paired-studies.md)、[并发配对](guides/concurrent-paired.md)、[联合评估](guides/joint-assessment.md) |
+| 对照与联合验收 | [实验有效性与分层确认](guides/experiment-validity.md)、[串行配对](guides/paired-studies.md)、[并发配对](guides/concurrent-paired.md)、[联合评估](guides/joint-assessment.md) |
 | 输入与独立测量 | [样本回放](guides/sample-capture.md)、[函数/类框架](guides/file-case-framework.md) |
 | 科学计算 | [工作量与强扩展](guides/scientific-performance.md)、[数值求解验证](guides/solver-validation.md) |
 | 运行与诊断 | [运行状态](guides/run-status.md)、[实际加载身份](guides/runtime-identity.md)、[CPU 采样](guides/sampling-interpretability.md)、[应用线程活动](guides/thread-activity.md)、[OS 切换时间线](guides/scheduler-timeline.md) |
@@ -240,7 +243,9 @@ JSON 是当前支持的配置格式。
   自行控制输出覆盖和状态污染。正确性命令也使用该 cwd 和 environment。
 - `{run_dir}` 可用于 argv 输出路径，替换为当前执行阶段目录；不是每次内部
   repetition 的新目录。Hyperfine/Google Benchmark 一批重复运行可能共享文件状态。
-  当前没有自动清缓存或重置输入的 hook；有状态程序必须先定义并验证复测语义。
+  可选的 `execution_state` 支持配置受信任的状态动作和验证器，但批量工具不能
+  在每次内部 repetition 之间执行样本级动作。平台不自动清理全局缓存或恢复任意
+  快照；有状态程序必须由使用方定义并验证复测语义。
 - 子进程仅继承最小 PATH/locale/TZ 和显式 environment；动态库路径、线程设置等
   必须明确提供。stdin 关闭，不支持交互式输入；使用受支持的文件/参数入口。
 - 计划探测也会启动程序：Google Benchmark 会执行注册列表查询。仅接入可信程序。

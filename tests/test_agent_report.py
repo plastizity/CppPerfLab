@@ -162,7 +162,11 @@ class AgentReportTests(unittest.TestCase):
     def test_schema_has_the_projection_contract(self):
         schema=json.loads((Path(__file__).parents[1]/'src/cppperflab/schemas/agent-report.schema.json').read_text())
         report=build_agent_report(self.view,self.path)
-        self.assertEqual(set(schema['required']),set(report))
+        self.assertLessEqual(set(schema['required']),set(report))
+        self.assertLessEqual(set(report),set(schema['properties']))
+        for field in ('validity','workflow','execution_state_evidence'):
+            self.assertIn(field,schema['properties'])
+            self.assertNotIn(field,schema['required'])  # Older version-1 exports remain valid.
         self.assertEqual(schema['properties']['schema_version']['const'],report['schema_version'])
         self.assertEqual(schema['properties']['report_type']['const'],report['report_type'])
 

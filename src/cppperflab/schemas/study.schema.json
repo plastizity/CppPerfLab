@@ -108,6 +108,9 @@
             "growth",
             "strong_scaling"
           ]
+        },
+        "workflow": {
+          "$ref": "urn:cppperflab:workflow:1"
         }
       },
       "required": [
@@ -377,6 +380,9 @@
             ],
             "additionalProperties": false
           }
+        },
+        "workflow": {
+          "$ref": "urn:cppperflab:workflow:1"
         }
       },
       "required": [
@@ -515,6 +521,9 @@
         "constraints": {
           "type": "string",
           "minLength": 1
+        },
+        "workflow": {
+          "$ref": "urn:cppperflab:workflow:1"
         }
       },
       "additionalProperties": false,
@@ -728,6 +737,16 @@
                     "additionalProperties": false
                   }
                 ]
+              },
+              "claim": {
+                "anyOf": [
+                  {
+                    "$ref": "urn:cppperflab:claim:1"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -773,6 +792,9 @@
             "notes"
           ],
           "additionalProperties": false
+        },
+        "workflow": {
+          "$ref": "urn:cppperflab:workflow:1"
         }
       },
       "additionalProperties": false,

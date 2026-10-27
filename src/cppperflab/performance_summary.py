@@ -44,6 +44,8 @@ def comparison_finding(result):
                'baseline_id': result['baseline_id'], 'candidate_id': result['candidate_id'],
                'classification': result.get('classification'), 'comparable': result['comparable'],
                'normalized_cost': normalized_cost(result), 'decisions':decisions(result), 'acceptance':result.get('acceptance')}
+    for field in ('validity','claim_acceptance'):
+        if field in result:finding[field]=result[field]
     finding.update({k:result[k] for k in ('comparison_id','metric_scope','case_id','profile_id','assessment_role','assessment_gate') if k in result})
     if not result['comparable']:
         finding.update(outcome='incomparable', message='测量条件或指标语义不兼容，未形成变化结论。',
@@ -73,6 +75,11 @@ def comparison_finding(result):
         else:
             finding.update(outcome='observed_value_decrease' if lower else 'observed_value_increase',
                            message='观察到指标数值变化；需结合指标含义判断，不自动判定整体收益。')
+    validity=result.get('validity')
+    if validity is not None and validity['status'] not in ('PASS','NOT_CONFIGURED'):
+        finding['message']+=' 已声明的必要有效性条件未通过，不能作为有效主张收益。'
+    if validity is not None and validity.get('claim_kind')=='mechanism_hypothesis':
+        finding['message']+=' 性能原因仍是待验证假设。'
     return finding
 
 

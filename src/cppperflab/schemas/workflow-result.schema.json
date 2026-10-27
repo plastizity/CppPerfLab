@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cppperflab:workflow-result:1",
+  "title": "CppPerfLab workflow provenance and calibration v1",
+  "description": "A frozen Study phase, separate from performance acceptance and final adoption.",
+  "type": "object",
+  "properties": {
+    "schema_version": {"const": 1},
+    "study_id": {"type": "string", "pattern": "^\\d{8}T\\d{6}-[0-9a-f]{12}$"},
+    "phase": {"enum": ["exploration", "calibration", "confirmation", "acceptance"]},
+    "source_study_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "selection_reason": {"type": "string", "minLength": 1},
+    "selected_run_id": {"type": ["string", "null"]},
+    "freeze_path": {"const": "workflow-freeze.json"},
+    "freeze_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "frozen_at": {"type": "string"},
+    "freeze_monotonic_ns": {"type": "integer", "minimum": 0},
+    "clock": {
+      "type": "object",
+      "properties": {"name": {"const": "CLOCK_MONOTONIC"}, "boot_id": {"type": "string"}, "time_namespace": {"type": "string"}},
+      "required": ["name", "boot_id", "time_namespace"],
+      "additionalProperties": false
+    },
+    "status": {"enum": ["RUNNING", "PASS", "FAIL", "INCONCLUSIVE"]},
+    "reason": {"type": "string"},
+    "ended_at": {"type": "string"},
+    "ended_monotonic_ns": {"type": "integer", "minimum": 0},
+    "run_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "calibration": {"type": ["object", "null"]},
+    "source_confirmations": {"type": "array", "items": {"type": "object",
+      "properties": {"study_id": {"type": "string"}, "comparisons": {"type": "array", "items": {"type": "object"}}},
+      "required": ["study_id", "comparisons"], "additionalProperties": false}},
+    "calibrations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {"study_id": {"type": "string"}, "status": {"enum": ["PASS", "FAIL", "INCONCLUSIVE", "UNSUPPORTED"]},
+                       "source_ended_at": {"type": ["string", "null"]},
+                       "matched_request_keys": {"type": "array", "items": {"type": "string"}},
+                       "applicable": {"type": ["boolean", "null"]}, "reason": {"type": "string"}},
+        "required": ["study_id", "status", "source_ended_at", "matched_request_keys", "applicable", "reason"],
+        "additionalProperties": false
+      }
+    },
+    "limitations": {"type": "array", "items": {"type": "string"}},
+    "optimization_accepted": {"const": false}
+  },
+  "required": ["schema_version", "study_id", "phase", "source_study_ids", "selection_reason", "selected_run_id",
+               "freeze_path", "freeze_digest", "frozen_at", "freeze_monotonic_ns", "clock", "status",
+               "calibration", "calibrations", "source_confirmations", "limitations", "optimization_accepted"],
+  "additionalProperties": false
+}

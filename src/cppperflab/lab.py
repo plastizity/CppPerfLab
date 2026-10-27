@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 import statistics
+import sys
 import time
 
 from .adapters import REGISTRY, EVENTS
@@ -25,6 +26,22 @@ def probe_tools(store, tool_ids=None, options=None, target=None):
     return result
 
 
+def _missing_claim_metrics(request, adapter):
+    claim=request.get('claim')
+    if claim is None:return set()
+    supplied=set(adapter.configured_metrics(request['measurement']['options']))
+    from .metrics import DERIVATIONS
+    supplied.update(name for name,(left,right,_,_) in DERIVATIONS.items() if left in supplied and right in supplied)
+    if 'sample_validation' in request['correctness'] and not adapter.batch:
+        from .solver import METRIC_IDS
+        supplied.update(METRIC_IDS)
+    if 'phase_report' in request['measurement'] and not adapter.batch:
+        from .phases import METRIC_IDS
+        supplied.update(METRIC_IDS)
+    needed={claim['metric']}|{row['metric'] for row in claim['conditions'] if row['required'] and row['source']=='work_metric'}
+    return needed-supplied
+
+
 def plan(request, store):
     from .budget import execution_budget
     budget=execution_budget(request)
@@ -33,9 +50,19 @@ def plan(request, store):
         raise LabError("invalid_request", "Unknown adapter " + selected)
     ids = list(REGISTRY) if selected == "auto" else [selected]
     eligible, invalid = [], {}
+    budget_candidates={candidate['tool']:candidate for candidate in budget['candidates']}
     for tool in ids:
+        if not budget_candidates[tool]['eligible']:
+            reason=budget_candidates[tool]['reason']
+            invalid[tool]={'tool':tool,'available':False,'reason':'unsupported_measurement_boundary','diagnostic':reason}
+            continue
         try:
             REGISTRY[tool].validate(request["measurement"]["options"])
+            missing=_missing_claim_metrics(request,REGISTRY[tool])
+            if missing:
+                invalid[tool]={'tool':tool,'available':False,'reason':'claim_metrics_unavailable',
+                               'diagnostic':', '.join(sorted(missing))}
+                continue
             eligible.append(tool)
         except LabError as error:
             if selected != "auto":
@@ -198,6 +225,10 @@ def run(request, store, *, measurement_hook=None):
               "summary": [], "correctness": {"status": "not_run"}, "error": None,
               "evidence_directory": str(directory)}
     if measurement_hook is not None:result['execution_context']=measurement_hook.context
+    from .workflowphase import current
+    workflow_context=current()
+    if workflow_context is not None:
+        result['workflow_context']={**workflow_context,'run_started_monotonic_ns':workflow_started}
     from .lifecycle import RunProgress,start_workflow_cost,implementation_identity
     result['workflow_cost']=start_workflow_cost(workflow_started,request['measurement'].get('progress',False))
     progress=RunProgress(result,directory) if request['measurement'].get('progress',False) else None
@@ -206,6 +237,10 @@ def run(request, store, *, measurement_hook=None):
     try:
         from .lifecycle import notify_record_created
         notify_record_created('run',identifier)
+        if workflow_context is not None:
+            from .environment import identity_snapshot
+            from .workflowphase import verify_frozen_request
+            verify_frozen_request(request,identity_snapshot(request),store)
         phase_import=request['measurement'].get('phase_import')
         if phase_import is not None:
             import hashlib
@@ -225,6 +260,9 @@ def run(request, store, *, measurement_hook=None):
             names = request.get('goal', {}).get('metrics', [])
             if not names and configured in REGISTRY:
                 names = REGISTRY[configured].configured_metrics(request['measurement']['options'])
+            if 'claim' in request:
+                names=list(dict.fromkeys([*names,request['claim']['metric'],
+                    *(c['metric'] for c in request['claim']['conditions'] if c['required'] and c['source']=='work_metric')]))
             result['unavailable_observations'] = [observation(name,'Unsupported',reason='No feasible tool; see plan diagnostics',
                                                               evidence='plan.json') for name in names]
             raise LabError("unavailable", "No feasible tool", result["plan"])
@@ -234,6 +272,8 @@ def run(request, store, *, measurement_hook=None):
             progress.configure(budget)
         result["tool"] = {**adapter.describe(), **result["plan"]["probes"]["tools"][selected]}
         result["identity"] = fingerprints(request, directory)
+        if workflow_context is not None:
+            verify_frozen_request(request,result['identity'],store)
         from .workflow_eta import cost_key
         result['workflow_cost']['cost_key']=cost_key(result,result['workflow_cost']['implementation_sha256'])
         if measurement_hook is not None:
@@ -355,92 +395,130 @@ def run(request, store, *, measurement_hook=None):
             result['solver_samples']=[]
         count = 1 if adapter.batch else config["repetitions"]
         for index in range(count):
-            group_started=time.monotonic()
-            folder = directory / ("measurement-%03d" % index)
-            folder.mkdir()
-            target_argv = [s.replace("{run_dir}", str(folder)) for s in target["argv"]]
-            command = adapter.prepare(target_argv, folder, config["options"],
-                                      repetitions=config["repetitions"], warmups=config["warmups"])
-            record = launch(command, folder, tool=True,execution_stage="measurement",measurement_group=index)
-            record['analysis_artifact_hashes']=result['identity']['artifacts']
-            if progress:progress.save('measurement_postprocessing')
+            state_record=None
+            state_directory=directory/('execution-state-%03d'%index)
             try:
-                parsed = adapter.parse(folder, config["options"], record)
-            except LabError as error:
-                if error.category=='target_failed':
-                    diagnostic=failed_phase_diagnostics(result,folder,directory,index,config,'measurement')
-                    if diagnostic:
-                        diagnostic.details['target_error']=error.as_dict()
-                        raise diagnostic from error
-                raise
-            except (OSError, ValueError, KeyError, TypeError) as error:
-                category = "tool_failed" if record["returncode"] else "parse_failed"
-                raise LabError(category, "Cannot normalize tool output", {"reason": str(error), "evidence": str(folder)}) from error
-            write_json(folder / "normalized.json", parsed)
-            if sample_validation:
-                from .solver import normalize
-                validation_argv=[arg.replace('{sample_dir}',str(folder)) for arg in sample_validation['argv']]
+                if 'execution_state' in request:
+                    from .state import execute_state
+                    try:
+                        state_record=execute_state(request,state_directory,launch)
+                    except LabError as error:
+                        state_record=error.details.get('execution_state_evidence')
+                        if state_record is not None:
+                            state_record['measurement_group']=index
+                            result.setdefault('execution_state_evidence',[]).append(state_record)
+                        raise
+                    state_record['measurement_group']=index
+                    result.setdefault('execution_state_evidence',[]).append(state_record)
+                group_started=time.monotonic()
+                folder = directory / ("measurement-%03d" % index)
+                folder.mkdir()
+                target_argv = [s.replace("{run_dir}", str(folder)) for s in target["argv"]]
+                command = adapter.prepare(target_argv, folder, config["options"],
+                                          repetitions=config["repetitions"], warmups=config["warmups"])
+                record = launch(command, folder, tool=True,execution_stage="measurement",measurement_group=index)
+                record['analysis_artifact_hashes']=result['identity']['artifacts']
+                if progress:progress.save('measurement_postprocessing')
                 try:
-                    launch(validation_argv,folder/'validation',execution_stage='per_sample_validation',measurement_group=index)
-                    solved=normalize(folder/sample_validation['report'],folder/'validation/stdout.txt',sample_validation,request['workload']['id'])
+                    parsed = adapter.parse(folder, config["options"], record)
                 except LabError as error:
+                    if error.category=='target_failed':
+                        diagnostic=failed_phase_diagnostics(result,folder,directory,index,config,'measurement')
+                        if diagnostic:
+                            diagnostic.details['target_error']=error.as_dict()
+                            raise diagnostic from error
+                    raise
+                except (OSError, ValueError, KeyError, TypeError) as error:
+                    category = "tool_failed" if record["returncode"] else "parse_failed"
+                    raise LabError(category, "Cannot normalize tool output", {"reason": str(error), "evidence": str(folder)}) from error
+                write_json(folder / "normalized.json", parsed)
+                if sample_validation:
+                    from .solver import normalize
+                    validation_argv=[arg.replace('{sample_dir}',str(folder)) for arg in sample_validation['argv']]
+                    try:
+                        launch(validation_argv,folder/'validation',execution_stage='per_sample_validation',measurement_group=index)
+                        solved=normalize(folder/sample_validation['report'],folder/'validation/stdout.txt',sample_validation,request['workload']['id'])
+                    except LabError as error:
+                        result['correctness']['status']='failed'
+                        result['correctness']['sample_validation_status']='failed'
+                        result['solver_samples'].append({'sample':index,'status':'INCONCLUSIVE','evidence_state':'Invalid','error':error.as_dict(),
+                                                        'evidence':str(folder.relative_to(directory)/sample_validation['report'])})
+                        if error.category=='target_failed':
+                            raise LabError('correctness_failed','Per-solve validator rejected output',error.details) from error
+                        raise
+                    parsed['metrics'].extend(solved.pop('metrics'))
+                    solved['sample']=index
+                    solved['evidence']=str(folder.relative_to(directory)/sample_validation['report'])
+                    solved['validation_evidence']=str(folder.relative_to(directory)/'validation/stdout.txt')
+                    result['solver_samples'].append(solved)
+                    parsed.setdefault('limitations',[]).extend(solved['limitations'])
+                    write_json(folder / 'normalized.json',parsed)
+                if 'phase_report' in config:
+                    phases=phase_evidence(result,folder,directory,index,config['phase_report'],phase_import=config.get('phase_import'))
+                    parsed['metrics'].extend(phases['metrics'])
+                    parsed.setdefault('unavailable_observations',[]).extend(phases['unavailable_observations'])
+                    parsed.setdefault('limitations',[]).extend(phases['limitations'])
+                    write_json(folder/'normalized.json',parsed)
+                if 'sampling_profile' in parsed:
+                    archive_sampling_profile(result,parsed['sampling_profile'],folder,directory,'measurement',index)
+                if 'scheduler_profile' in parsed:
+                    archive_scheduler_profile(result,parsed['scheduler_profile'],folder,directory,'measurement',index)
+                if "library_version" in parsed:
+                    result["tool"]["version"] = parsed["library_version"]
+                if "sample_count" in parsed:
+                    result.setdefault("sampling_quality", []).append({
+                        "measurement": index, "sample_count": parsed["sample_count"],
+                        "unknown_symbol_self_percent": parsed["unknown_symbol_self_percent"]})
+                for metrics in parsed.get("samples", [parsed["metrics"]]):
+                    for item in metrics:
+                        item["evidence"] = str(folder.relative_to(directory) / item["evidence"])
+                        item["tool"] = selected
+                        item["tool_version"] = result["tool"]["version"]
+                    result["samples"].append({"index": len(result["samples"]), "metrics": metrics})
+                for section in ('call_edges','allocation_sites','unavailable_observations'):
+                    result.setdefault(section,[]).extend({**row, 'sample':index,
+                        'evidence':str(folder.relative_to(directory)/row['evidence'])} for row in parsed.get(section,[]))
+                result["hotspots"].extend({**h, "sample": index,
+                                           "evidence": str(folder.relative_to(directory) / h["evidence"])} for h in parsed["hotspots"])
+                if 'phase_report' in config and phases['correctness_failed']:
+                    result['correctness']['status']='failed'
+                    raise LabError('correctness_failed','A reported phase failed correctness',{'sample':index,'evidence':config['phase_report']})
+                if sample_validation and solved['status']!='PASS':
                     result['correctness']['status']='failed'
                     result['correctness']['sample_validation_status']='failed'
-                    result['solver_samples'].append({'sample':index,'status':'INCONCLUSIVE','evidence_state':'Invalid','error':error.as_dict(),
-                                                    'evidence':str(folder.relative_to(directory)/sample_validation['report'])})
-                    if error.category=='target_failed':
-                        raise LabError('correctness_failed','Per-solve validator rejected output',error.details) from error
-                    raise
-                parsed['metrics'].extend(solved.pop('metrics'))
-                solved['sample']=index
-                solved['evidence']=str(folder.relative_to(directory)/sample_validation['report'])
-                solved['validation_evidence']=str(folder.relative_to(directory)/'validation/stdout.txt')
-                result['solver_samples'].append(solved)
-                parsed.setdefault('limitations',[]).extend(solved['limitations'])
-                write_json(folder / 'normalized.json',parsed)
-            if 'phase_report' in config:
-                phases=phase_evidence(result,folder,directory,index,config['phase_report'],phase_import=config.get('phase_import'))
-                parsed['metrics'].extend(phases['metrics'])
-                parsed.setdefault('unavailable_observations',[]).extend(phases['unavailable_observations'])
-                parsed.setdefault('limitations',[]).extend(phases['limitations'])
-                write_json(folder/'normalized.json',parsed)
-            if 'sampling_profile' in parsed:
-                archive_sampling_profile(result,parsed['sampling_profile'],folder,directory,'measurement',index)
-            if 'scheduler_profile' in parsed:
-                archive_scheduler_profile(result,parsed['scheduler_profile'],folder,directory,'measurement',index)
-            if "library_version" in parsed:
-                result["tool"]["version"] = parsed["library_version"]
-            if "sample_count" in parsed:
-                result.setdefault("sampling_quality", []).append({
-                    "measurement": index, "sample_count": parsed["sample_count"],
-                    "unknown_symbol_self_percent": parsed["unknown_symbol_self_percent"]})
-            for metrics in parsed.get("samples", [parsed["metrics"]]):
-                for item in metrics:
-                    item["evidence"] = str(folder.relative_to(directory) / item["evidence"])
-                    item["tool"] = selected
-                    item["tool_version"] = result["tool"]["version"]
-                result["samples"].append({"index": len(result["samples"]), "metrics": metrics})
-            for section in ('call_edges','allocation_sites','unavailable_observations'):
-                result.setdefault(section,[]).extend({**row, 'sample':index,
-                    'evidence':str(folder.relative_to(directory)/row['evidence'])} for row in parsed.get(section,[]))
-            result["hotspots"].extend({**h, "sample": index,
-                                       "evidence": str(folder.relative_to(directory) / h["evidence"])} for h in parsed["hotspots"])
-            if 'phase_report' in config and phases['correctness_failed']:
-                result['correctness']['status']='failed'
-                raise LabError('correctness_failed','A reported phase failed correctness',{'sample':index,'evidence':config['phase_report']})
-            if sample_validation and solved['status']!='PASS':
-                result['correctness']['status']='failed'
-                result['correctness']['sample_validation_status']='failed'
-                raise LabError('correctness_failed','Per-solve numerical acceptance failed',{'sample':index,'violations':solved['violations']})
-            if selected == "massif":
-                # Full allocation trees are already retained; human rendering is optional.
-                from shutil import which
-                if which("ms_print"):
-                    rendering = launch([which("ms_print"), str(folder / "massif.out")], folder / "render", tool=True)
-                    if rendering["returncode"]:
-                        raise LabError("tool_failed", "Massif rendering failed; raw data retained")
-            result.setdefault("limitations", []).extend(parsed.get("limitations", []))
-            if progress:progress.group_finished(time.monotonic()-group_started)
+                    raise LabError('correctness_failed','Per-solve numerical acceptance failed',{'sample':index,'violations':solved['violations']})
+                if selected == "massif":
+                    # Full allocation trees are already retained; human rendering is optional.
+                    from shutil import which
+                    if which("ms_print"):
+                        rendering = launch([which("ms_print"), str(folder / "massif.out")], folder / "render", tool=True)
+                        if rendering["returncode"]:
+                            raise LabError("tool_failed", "Massif rendering failed; raw data retained")
+                result.setdefault("limitations", []).extend(parsed.get("limitations", []))
+                if progress:progress.group_finished(time.monotonic()-group_started)
+            finally:
+                if 'execution_state' in request:
+                    from .state import cleanup_state
+                    primary_error=sys.exc_info()[1]
+                    try:
+                        cleanup=cleanup_state(request,state_directory,launch)
+                    except LabError as cleanup_error:
+                        cleanup=cleanup_error.details['execution_state_cleanup']
+                        result.setdefault('execution_state_cleanup_errors',[]).append(
+                            dict(measurement_group=index,error=cleanup_error.as_dict()))
+                        if state_record is not None:
+                            state_record['cleanup']=cleanup
+                            state_record['status']='FAIL'
+                            state_record['evidence_refs'].extend(cleanup['evidence_refs'])
+                        if primary_error is None:raise
+                    else:
+                        if cleanup is not None:
+                            if state_record is not None:
+                                state_record['cleanup']=cleanup
+                                state_record['evidence_refs'].extend(cleanup['evidence_refs'])
+                            else:
+                                result.setdefault('execution_state_cleanup_evidence',[]).append(
+                                    dict(measurement_group=index,**cleanup))
         if len(result["samples"]) != config["repetitions"]:
             raise LabError("parse_failed", "Unexpected number of measurement samples")
         if sample_validation:
@@ -472,6 +550,8 @@ def run(request, store, *, measurement_hook=None):
         result["status"] = "failed"
         result["error"] = LabError("internal_error", str(error)).as_dict()
     finally:
+        from .validity import evaluate_run_validity
+        result['validity']=evaluate_run_validity(result)
         result["ended_at"] = utc()
         result["environment_after"] = discover()
         result["evidence"] = inventory(directory)

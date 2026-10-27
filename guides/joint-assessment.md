@@ -54,9 +54,19 @@ Each profile declares:
 | `warmups` | Process warmups for every member |
 | `design` | `{kind: "paired", blocks, order}` or `{kind: "unpaired", repetitions}` |
 | `comparisons` | Nonempty metric/scope, role, policy and gate definitions |
+| `claim` | Optional per-profile claim override; an object declares a claim, `null` disables it for this profile |
 
-Profiles override only measurement tool/options/repetitions/warmups on the two
-templates. Other controls and correctness commands stay explicit. Individually
+Profiles override measurement tool/options/repetitions/warmups and, when
+explicitly provided, `claim` on both templates. Omitting `claim` inherits the
+request's claim; an object replaces it, and `null` clears only this profile's
+claim. Correctness and `execution_state` remain in effect. Decide and record
+each profile's claim before the experiment: for example, use a `time.wall` claim
+on the native timing profile and explicit `null` on a heap profile that does not
+collect that metric. If a claim is required for a profile, declare it there or
+explicitly inherit the intended request claim. Clearing a claim is not evidence
+that its conditions passed, nor an automatic relaxation of other gates.
+
+Other controls and correctness commands stay explicit. Individually
 scoped non-batch adapters are supported; Hyperfine and Google Benchmark batches
 are rejected by this interface. Unsupported/denied tools cause a failed workflow
 and no accepted joint assessment. There is no automatic fallback or skipped gate.

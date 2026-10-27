@@ -23,6 +23,11 @@ def execution_budget(request):
             candidates.append({'tool':tool,'eligible':False,
                                'reason':{'category':'invalid_request','message':'Per-execution reports/validation require a nonbatch adapter'}})
             continue
+        state=request.get('execution_state')
+        if state is not None and state['scope']=='measurement_sample' and adapter.batch:
+            candidates.append({'tool':tool,'eligible':False,
+                               'reason':{'category':'unavailable','message':'State sample scope requires a nonbatch adapter'}})
+            continue
         if tool=='google-benchmark' and config['warmups']:
             raise LabError('invalid_request','Google Benchmark uses options.warmup_seconds; set warmups=0')
         runtime=config.get('runtime_identity')
@@ -35,6 +40,10 @@ def execution_budget(request):
         measurement_groups=1 if adapter.batch else config['repetitions']
         validator_groups=config['repetitions'] if validation else 0
         groups=1+preflight+warmup_groups+measurement_groups+validator_groups
+        from .state import state_budget
+        state_actions=state_budget(request,measurement_groups)
+        if state_actions is not None:
+            groups+=state_actions['additional_commands']
         stages=[
             {'stage':'capability_probe','commands':None,'target_registration_listings':listing,
              'target_computation_runs':None if listing else 0,'meaning':'Integrated target main is executed for registration listing; its side effects are target-owned.' if listing else 'Tool versions and collection on small system workloads; not the configured target.'},
@@ -78,12 +87,14 @@ def execution_budget(request):
         phase_import_budget=None if 'phase_import' not in config else dict(additional_target_launches=0,source=config['phase_import']['source'],
             conversions=preflight+measurement_groups,mapping_sha256=config['phase_import']['mapping_sha256'],
             cost='Deterministic parsing/hashing after existing launches; log byte count unknown; excluded from target tool timing')
-        candidates.append({'phase_import':phase_import_budget,'progress':dict(enabled=config.get('progress',False),additional_target_launches=0,
+        candidates.append({'phase_import':phase_import_budget,'execution_state':state_actions,'progress':dict(enabled=config.get('progress',False),additional_target_launches=0,
             overhead='Opt-in process-start metadata writes can overlap target execution; slowdown is unquantified; no timing subtraction'),
             'sampling':sampling_budget,'runtime_identity':runtime_budget,'tool':tool,'eligible':True,'availability':'not_probed','eligibility_basis':'Adapter options and per-execution report compatibility only; goal and runtime availability still require plan.', 'stages':stages,
             'main_execution_groups':groups,'configured_timeout_budget_seconds':groups*config['timeout_seconds'],
             'known_target_computation_runs':None if listing else preflight+config['warmups']+config['repetitions'],
-            'unknown_work':['correctness command internal workload','external validator internal workload'] if validation else ['correctness command internal workload'],
+            'unknown_work':(['correctness command internal workload']
+                + (['external validator internal workload'] if validation else [])
+                + (['execution state actions internal workload'] if state_actions is not None and state_actions['additional_commands'] else [])),
             'adaptive_benchmark_warmup_seconds':config['options'].get('warmup_seconds',0) if listing else None,
             'adaptive_benchmark_min_time_seconds':config['options'].get('min_time_seconds',.1) if listing else None})
     return {'schema_version':1,'selected_tool':None if selected=='auto' else selected,

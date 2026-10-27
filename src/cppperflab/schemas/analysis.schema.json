@@ -351,10 +351,34 @@
           },
           "execution_context": {
             "type": "object"
+          },
+          "validity": {
+            "type": "object"
+          },
+          "workflow_context": {
+            "type": "object"
           }
         },
         "additionalProperties": false
       }
+    },
+    "validity": {
+      "type": "object",
+      "description": "Recorded or explicitly unconfigured claim-validity result."
+    },
+    "workflow": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Study freeze/provenance, or source Run context; phase status is not a performance verdict."
+    },
+    "execution_state_evidence": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "description": "Per-invocation consumer action and verification records."
     }
   },
   "required": [

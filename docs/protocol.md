@@ -32,6 +32,13 @@ is maintained because those drafts never formed a public contract.
 - `goal` is optional for explicit selection and mandatory for `tool:auto`. It
   describes required metric IDs and allowed overhead/instrumentation; it is not a
   natural-language keyword map. Unsupported capabilities are returned as reasons.
+- `claim` and `execution_state` are optional, separately versioned contracts. The
+  first declares the performance claim and its required evidence; the second can
+  declare trusted state actions and verification at a supported measurement boundary.
+  A declaration or successful action alone does not prove state equivalence or cause.
+  Requests without contracts keep the existing behavior. See the
+  [experiment validity guide](../guides/experiment-validity.md) for schema queries,
+  workflow provenance, comparison gates and limitations.
 
 ## Normalized measurement
 

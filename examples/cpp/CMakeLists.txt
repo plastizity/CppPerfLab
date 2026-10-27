@@ -121,6 +121,13 @@ add_test(NAME file_case_oracle COMMAND file_case --verify)
 add_test(NAME file_case_lifecycle_protocol COMMAND ${PERFLAB_PYTHON}
   ${CMAKE_CURRENT_SOURCE_DIR}/oracle_case.py $<TARGET_FILE:file_case>)
 
+add_executable(validity_workload validity_workload.cpp)
+target_compile_features(validity_workload PRIVATE cxx_std_11)
+target_compile_options(validity_workload PRIVATE -Wall -Wextra -Werror -fno-fast-math -ffp-contract=off)
+target_include_directories(validity_workload PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../include)
+add_test(NAME validity_workload_protocol COMMAND ${PERFLAB_PYTHON}
+  ${CMAKE_CURRENT_SOURCE_DIR}/oracle_validity.py test $<TARGET_FILE:validity_workload>)
+
 foreach(variant origin candidate)
   add_library(runtime_${variant} SHARED runtime_plugin.cpp)
   target_compile_features(runtime_${variant} PRIVATE cxx_std_11)

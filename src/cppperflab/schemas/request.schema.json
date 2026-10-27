@@ -347,6 +347,12 @@
         "allow_instrumentation"
       ],
       "additionalProperties": false
+    },
+    "claim": {
+      "$ref": "urn:cppperflab:claim:1"
+    },
+    "execution_state": {
+      "$ref": "urn:cppperflab:execution-state:1"
     }
   },
   "required": [

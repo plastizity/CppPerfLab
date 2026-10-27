@@ -92,6 +92,12 @@
           "items": {
             "type": "object"
           }
+        },
+        "source_validity_issues": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
         }
       },
       "required": [
@@ -159,6 +165,18 @@
         ],
         "additionalProperties": false
       }
+    },
+    "validity": {
+      "type": "object"
+    },
+    "workflow": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "execution_state_evidence": {
+      "$ref": "#/$defs/collection"
     }
   },
   "required": [

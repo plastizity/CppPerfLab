@@ -13,11 +13,29 @@ from .performance_summary import summarize_performance
 
 
 SECTIONS = ("overview", "conditions", "summary", "metrics", "hotspots", "quality", "evidence",
-            "facts", "hypotheses", "growth", "comparisons", "observations", "call_edges", "allocation_sites", "phases", "phase_summaries", "runtime_identities", "sampling_profiles", "thread_timelines", "scheduler_timelines", "lifecycle", "candidate")
+            "facts", "hypotheses", "growth", "comparisons", "observations", "call_edges", "allocation_sites", "phases", "phase_summaries", "runtime_identities", "sampling_profiles", "thread_timelines", "scheduler_timelines", "lifecycle", "candidate", "validity", "workflow", "execution_state_evidence")
 
 
 def evidence_id(run_id, path):
     return run_id + ":" + path
+
+
+def recorded_validity(record):
+    """Expose recorded gates without upgrading legacy or incomplete records."""
+    if 'validity' in record:
+        return record['validity']
+    error=record.get('error')
+    if error is not None and 'validity' in error.get('details',{}):
+        return error['details']['validity']
+    request=record.get('request', {})
+    configured='claim' in request or 'execution_state' in request
+    return {'schema_version':1, 'status':'INCONCLUSIVE' if configured else 'NOT_CONFIGURED',
+            'assessment_scope':'claim' if 'claim' in request else 'execution_state' if configured else 'none',
+            'claim_kind':request['claim']['kind'] if 'claim' in request else None,
+            'claim':None, 'conditions':[],
+            'limitations':['Validity result was not recorded.' if configured else
+                'No independent Study-level validity verdict; inspect every comparison and source Run.' if 'study_id' in record else
+                'No validity contract was recorded for this object.']}
 
 
 def base_view(kind, identifier, status, error):
@@ -25,7 +43,8 @@ def base_view(kind, identifier, status, error):
             "status": status, "error": error, "optimization_accepted": False,
             "overview": {}, "conditions": {}, "metrics": [], "hotspots": [],
             "quality": [], "evidence": [], "facts": [], "hypotheses": [],
-            "growth": [], "comparisons": [], "limitations": [], "summary": {}, "observations": [], "call_edges": [], "allocation_sites": [], "phases": [], "phase_summaries": [], "runtime_identities": [], "sampling_profiles": [], "thread_timelines": [], "scheduler_timelines": [], "source_records": [], "lifecycle":None, "candidate":None}
+            "growth": [], "comparisons": [], "limitations": [], "summary": {}, "observations": [], "call_edges": [], "allocation_sites": [], "phases": [], "phase_summaries": [], "runtime_identities": [], "sampling_profiles": [], "thread_timelines": [], "scheduler_timelines": [], "source_records": [], "lifecycle":None, "candidate":None,
+            "validity":recorded_validity({}), "workflow":None, "execution_state_evidence":[]}
 
 
 def source_record(run):
@@ -43,6 +62,10 @@ def source_record(run):
                 build=pick(request['target']['build'],('revision','compiler','flags','mode')))
     if 'execution_context' in run:
         source['execution_context']=pick(run['execution_context'],('kind','scope','concurrent_runs','resource_conditions','status','overlap_fraction','overlap'))
+    validity=recorded_validity(run)
+    source['validity']={**pick(validity,('schema_version','status','assessment_scope','claim_kind')),
+                        'conditions':[row for row in validity['conditions'] if row['status']!='PASS']}
+    if 'workflow_context' in run:source['workflow_context']=run['workflow_context']
     return source
 
 
@@ -50,6 +73,9 @@ def run_view(result):
     rid = result["run_id"]
     view = base_view("run", rid, result["status"], result["error"])
     view['source_records']=[source_record(result)]
+    view['validity']=recorded_validity(result)
+    view['workflow']=result.get('workflow_context')
+    view['execution_state_evidence']=result.get('execution_state_evidence',[])
     request = result["request"]
     view['lifecycle']=None if 'lifecycle' not in result else dict(progress=result['lifecycle'])
     view["overview"] = {"name": request["name"], "workload": request["workload"],
@@ -61,6 +87,8 @@ def run_view(result):
                           "environment": result["environment"], "identity": result.get("identity"),
                           "binary": result.get("binary"), "oracle": request["correctness"]}
     if 'execution_context' in result:view['conditions']['execution_context']=result['execution_context']
+    for key in ('claim','execution_state'):
+        if key in request:view['conditions'][key]=request[key]
     view["observations"] = run_observations(result)
     for section in ('call_edges','allocation_sites','phases','phase_summaries','runtime_identities','sampling_profiles','thread_timelines','scheduler_timelines'):
         view[section]=[{**row,'evidence_id':evidence_id(rid,row['evidence'])} for row in result.get(section,[])]
@@ -137,6 +165,7 @@ def comparison_view(result):
     result = dict(result, normalized_cost=normalized_cost(result), decisions=decisions(result))
     if not result["comparable"]:
         view = base_view("comparison", result["comparison_id"], "incomparable", result["error"])
+        view['validity']=recorded_validity(result)
         view["overview"] = {k: result[k] for k in ("baseline_id", "candidate_id", "metric", "comparable")}
         view["comparisons"] = [result]
         view["conditions"] = result["error"]["details"]
@@ -146,11 +175,13 @@ def comparison_view(result):
         view['summary'] = summarize_performance([], [result])
         return view
     view = base_view("comparison", result["comparison_id"], "completed", None)
+    view['validity']=recorded_validity(result)
     view["overview"] = {key: result[key] for key in (
         "baseline_id", "candidate_id", "metric", "unit", "comparable", "classification",
         "baseline_median", "candidate_median", "speedup", "change_fraction",
         "bootstrap_95_percent_speedup", "coefficient_of_variation")}
     view["overview"]["acceptance"] = result.get("acceptance")
+    if 'claim_acceptance' in result:view['overview']['claim_acceptance']=result['claim_acceptance']
     view["overview"]["decisions"] = result["decisions"]
     if result["policy"].get("paired"):
         view["overview"]["baseline_run_ids"]=result["baseline_run_ids"]
@@ -174,6 +205,8 @@ def comparison_view(result):
 
 def study_view(result):
     view = base_view("study", result["study_id"], result["status"], result["error"])
+    view['validity']=recorded_validity(result)
+    view['workflow']=result.get('workflow')
     spec = result["spec"]
     if spec.get('analysis')=='assessment':
         view['overview']={'name':spec['name'],'analysis':'assessment','collection_id':spec['collection_id'],
@@ -252,6 +285,19 @@ def build_view(store, identifier, kind="run"):
         return summary_view(store, record)
     builders = {"run": run_view, "comparison": comparison_view, "study": study_view}
     view = builders[kind](record)
+    if kind in ('run','comparison') and 'workflow_context' in record:
+        context=record['workflow_context']
+        parent=store.read(context['study_id'],'study')
+        workflow=parent.get('workflow')
+        if not isinstance(workflow,dict):
+            raise LabError('storage_failed','Parent Study lacks the workflow referenced by this record',
+                           {'study_id':context['study_id']})
+        for key in ('study_id','phase','freeze_digest','freeze_monotonic_ns','clock'):
+            if workflow[key]!=context[key]:
+                raise LabError('storage_failed','Parent Study workflow does not match this record',
+                               {'study_id':context['study_id'],'condition':key})
+        view['workflow']={**workflow,'parent_study_status':parent['status'],'source_context':context}
+        view['conditions']={**view['conditions'],'workflow_context':context}
     if kind=='run':
         from .lifecycle import status_from_result
         current=status_from_result(store,record)

@@ -1,5 +1,6 @@
 """Preregistered multi-profile Study composition; no new statistics or executor."""
 import copy
+import json
 import random
 
 from .adapters import REGISTRY
@@ -38,7 +39,10 @@ def load_assessment(spec,base,store):
     require(isinstance(spec['profiles'],list) and bool(spec['profiles']),'Explicit profiling configurations required')
     ids=set();roles=[];needed=0
     for profile in spec['profiles']:
-        fields(profile,('id','tool','options','warmups','design','comparisons'),('id','tool','options','warmups','design','comparisons'),'assessment profile')
+        fields(profile,('id','tool','options','warmups','design','comparisons','claim'),('id','tool','options','warmups','design','comparisons'),'assessment profile')
+        if profile.get('claim') is not None:
+            from .contracts import validate_claim
+            validate_claim(profile['claim'])
         require(isinstance(profile['id'],str) and bool(profile['id']) and profile['id'] not in ids,'Distinct profile ID required');ids.add(profile['id'])
         require(isinstance(profile['tool'],str) and profile['tool'] in REGISTRY,'Explicit registered profile tool required')
         require(not REGISTRY[profile['tool']].batch,'Assessment profiles require individually scoped observations, not batch adapters')
@@ -84,6 +88,9 @@ def load_assessment(spec,base,store):
                 request=copy.deepcopy(template)
                 request['measurement'].update(tool=profile['tool'],options=copy.deepcopy(profile['options']),warmups=profile['warmups'],
                     repetitions=1 if design['kind']=='paired' else design['repetitions'])
+                if 'claim' in profile:
+                    if profile['claim'] is None:request.pop('claim',None)
+                    else:request['claim']=copy.deepcopy(profile['claim'])
                 modified[variant]=request
                 requests[variant]=bind_sample(store,spec['collection_id'],sample,request)
             descriptors=profile['comparisons']
@@ -129,6 +136,8 @@ def assess_rows(spec,rows):
         for row in selected:
             decision=decisions(row)
             correctness.append(decision['correctness']['status'])
+            if decision['validity']['status']!='NOT_CONFIGURED':
+                gates.append(decision['validity']['status'])
             if row['assessment_gate']!='informational':gates.append(decision[row['assessment_gate']]['status'])
             if row['assessment_role']=='end_to_end':primary.append(decision['improvement']['status'])
             if row['assessment_role']=='work':
@@ -157,48 +166,54 @@ def run_assessment(spec,jobs,store):
         runs=[],comparisons=[],growth={},secondary_growth={},jobs=[],identities=[],execution_budget=assessment_budget(spec,jobs),
         assessment=dict(schema_version=1,correctness='INCONCLUSIVE',acceptance='INCONCLUSIVE',end_to_end_improvement='NOT_ESTABLISHED',cases=[],optimization_accepted=False))
     from .lifecycle import StudyProgress,notify_record_created
+    from .workflowphase import begin, session, finalize_into
     progress=StudyProgress(result,directory,(r for job in jobs for r in job['requests'].values()),result['execution_budget']['run_calls'])
     order=list(range(len(jobs)));random.Random(spec['seed']).shuffle(order)
     result['jobs']=[dict(index=i,sample_id=jobs[i]['sample_id'],profile_id=jobs[i]['profile_id'],status='pending',study_id=None) for i in order]
     write_json(directory/'study.json',result)
     try:
         notify_record_created('study',id)
-        expected={}
-        for job in jobs:
-            for variant,request in job['requests'].items():
-                key=(job['sample_id'],variant);identity=identity_snapshot(request)
-                require(expected.setdefault(key,identity)==identity,'Profile changed case/variant identity before execution')
-        result['identities']=[dict(case_id=s,variant=v,identity=i) for (s,v),i in expected.items()]
-        for row in result['jobs']:
-            job=jobs[row['index']];sample=job['sample_id'];row['status']='running';result['active_job']=row['index']
-            write_json(directory/'study.json',result)
-            for variant,request in job['requests'].items():require(identity_snapshot(request)==expected[(sample,variant)],'Assessment inputs/artifacts changed before profile launch')
-            folder=directory/('job-%03d'%row['index']);folder.mkdir()
-            child_spec=copy.deepcopy(job['spec'])
-            for variant in ('baseline','candidate'):
-                path=folder/(variant+'.request.json')
-                write_json(path,job['requests'][variant] if job['kind']=='paired' else job['templates'][variant])
-                if job['kind']=='paired':child_spec[variant]=str(path)
-                else:child_spec['requests'][variant]=str(path)
-            write_json(folder/'study.json',child_spec)
-            with progress.delegate('study',dict(index=row['index'],sample_id=sample,profile_id=job['profile_id'])):
-                child=run_paired(child_spec,job['requests'],store) if job['kind']=='paired' else run_cases(child_spec,{(sample,v):r for v,r in job['requests'].items()},store)
-            row.update(status=child['status'],study_id=child['study_id'])
-            result['runs'].extend({**r,'case_id':sample,'profile_id':job['profile_id'],'source_study_id':child['study_id']} for r in child['runs'])
-            write_json(directory/'study.json',result)
-            if child['status']!='completed':
-                result['assessment']['acceptance']=child['error']['details'].get('acceptance',{}).get('status','INCONCLUSIVE')
-                raise LabError(child['error']['category'],'Assessment profile failed; no partial assessment is accepted',{'study_id':child['study_id'],'error':child['error']})
-            for member in child['runs']:
-                native=store.read(member['run_id'])
-                require(native['identity']==expected[(sample,member['variant'])],'Measured profile identity differs from assessment registration')
-            for variant,request in job['requests'].items():require(identity_snapshot(request)==expected[(sample,variant)],'Assessment inputs/artifacts changed after profile execution')
-            for descriptor,c in zip(job['descriptors'],child['comparisons']):
-                require((c['metric'],c.get('metric_scope'))==(descriptor['metric'],descriptor.get('metric_scope')),'Child comparison order/meaning changed')
-                result['comparisons'].append(dict(c,case_id=sample,profile_id=job['profile_id'],assessment_role=descriptor['role'],
-                    assessment_gate=descriptor['gate'],assessment_comparison_id=descriptor['id'],source_study_id=child['study_id']))
-            require(len(child['comparisons'])==len(job['descriptors']),'Child comparison matrix incomplete')
-        result['assessment']=assess_rows(spec,result['comparisons']);result['status']='completed'
+        record = begin(spec, {json.dumps([job["sample_id"], job["profile_id"], variant]): request for job in jobs for variant, request in job["requests"].items()}, store, id, directory)
+        if record is not None:
+            result["workflow"] = record
+            write_json(directory / "study.json", result)
+        with session(record):
+            expected={}
+            for job in jobs:
+                for variant,request in job['requests'].items():
+                    key=(job['sample_id'],variant);identity=identity_snapshot(request)
+                    require(expected.setdefault(key,identity)==identity,'Profile changed case/variant identity before execution')
+            result['identities']=[dict(case_id=s,variant=v,identity=i) for (s,v),i in expected.items()]
+            for row in result['jobs']:
+                job=jobs[row['index']];sample=job['sample_id'];row['status']='running';result['active_job']=row['index']
+                write_json(directory/'study.json',result)
+                for variant,request in job['requests'].items():require(identity_snapshot(request)==expected[(sample,variant)],'Assessment inputs/artifacts changed before profile launch')
+                folder=directory/('job-%03d'%row['index']);folder.mkdir()
+                child_spec=copy.deepcopy(job['spec'])
+                for variant in ('baseline','candidate'):
+                    path=folder/(variant+'.request.json')
+                    write_json(path,job['requests'][variant] if job['kind']=='paired' else job['templates'][variant])
+                    if job['kind']=='paired':child_spec[variant]=str(path)
+                    else:child_spec['requests'][variant]=str(path)
+                write_json(folder/'study.json',child_spec)
+                with progress.delegate('study',dict(index=row['index'],sample_id=sample,profile_id=job['profile_id'])):
+                    child=run_paired(child_spec,job['requests'],store) if job['kind']=='paired' else run_cases(child_spec,{(sample,v):r for v,r in job['requests'].items()},store)
+                row.update(status=child['status'],study_id=child['study_id'])
+                result['runs'].extend({**r,'case_id':sample,'profile_id':job['profile_id'],'source_study_id':child['study_id']} for r in child['runs'])
+                write_json(directory/'study.json',result)
+                if child['status']!='completed':
+                    result['assessment']['acceptance']=child['error']['details'].get('acceptance',{}).get('status','INCONCLUSIVE')
+                    raise LabError(child['error']['category'],'Assessment profile failed; no partial assessment is accepted',{'study_id':child['study_id'],'error':child['error']})
+                for member in child['runs']:
+                    native=store.read(member['run_id'])
+                    require(native['identity']==expected[(sample,member['variant'])],'Measured profile identity differs from assessment registration')
+                for variant,request in job['requests'].items():require(identity_snapshot(request)==expected[(sample,variant)],'Assessment inputs/artifacts changed after profile execution')
+                for descriptor,c in zip(job['descriptors'],child['comparisons']):
+                    require((c['metric'],c.get('metric_scope'))==(descriptor['metric'],descriptor.get('metric_scope')),'Child comparison order/meaning changed')
+                    result['comparisons'].append(dict(c,case_id=sample,profile_id=job['profile_id'],assessment_role=descriptor['role'],
+                        assessment_gate=descriptor['gate'],assessment_comparison_id=descriptor['id'],source_study_id=child['study_id']))
+                require(len(child['comparisons'])==len(job['descriptors']),'Child comparison matrix incomplete')
+            result['assessment']=assess_rows(spec,result['comparisons']);result['status']='completed'
     except LabError as error:
         result['status']='cancelled' if error.category=='cancelled' else 'failed';result['error']=error.as_dict()
         if error.category in ('unavailable','permission_denied'):result['assessment']['acceptance']='UNSUPPORTED'
@@ -209,6 +224,7 @@ def run_assessment(spec,jobs,store):
     except Exception as error:
         result['status']='failed';result['error']=LabError('internal_error',str(error)).as_dict();raise
     finally:
+        finalize_into(result, store)
         progress.terminal()
         for row in result['jobs']:
             if row['status']=='running':row['status']=result['status']

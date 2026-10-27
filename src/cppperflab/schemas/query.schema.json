@@ -41,6 +41,7 @@
       "enum": [
         "overview",
         "conditions",
+        "summary",
         "metrics",
         "hotspots",
         "quality",
@@ -49,16 +50,27 @@
         "hypotheses",
         "growth",
         "comparisons",
-        "summary",
         "observations",
         "call_edges",
-        "allocation_sites"
+        "allocation_sites",
+        "phases",
+        "phase_summaries",
+        "runtime_identities",
+        "sampling_profiles",
+        "thread_timelines",
+        "scheduler_timelines",
+        "lifecycle",
+        "candidate",
+        "validity",
+        "workflow",
+        "execution_state_evidence"
       ]
     },
     "data": {
       "type": [
         "object",
-        "array"
+        "array",
+        "null"
       ]
     },
     "pagination": {
@@ -73,6 +85,7 @@
         "enum": [
           "overview",
           "conditions",
+          "summary",
           "metrics",
           "hotspots",
           "quality",
@@ -81,10 +94,20 @@
           "hypotheses",
           "growth",
           "comparisons",
-          "summary",
           "observations",
           "call_edges",
-          "allocation_sites"
+          "allocation_sites",
+          "phases",
+          "phase_summaries",
+          "runtime_identities",
+          "sampling_profiles",
+          "thread_timelines",
+          "scheduler_timelines",
+          "lifecycle",
+          "candidate",
+          "validity",
+          "workflow",
+          "execution_state_evidence"
         ]
       }
     },

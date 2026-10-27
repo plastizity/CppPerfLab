@@ -68,6 +68,8 @@ def validate_pair_conditions(spec,requests):
     if spec['resource_conditions']['concurrent_runs']==2:
         from .adapters import REGISTRY
         require(all(not REGISTRY[r['measurement']['tool']].batch for r in requests.values()),'Concurrent pairs require non-batch external tools')
+        if any('execution_state' in request for request in requests.values()):
+            raise LabError('unavailable','Concurrent state-action boundaries cannot guarantee the requested serial preparation semantics')
     differences=request_differences(requests['baseline'],requests['candidate'],spec.get('allow_command_change',False))
     if differences:raise LabError('incomparable','Declared paired conditions differ before execution',{'differences':differences})
     require(requests['baseline']['measurement']['tool']==requests['candidate']['measurement']['tool'],'Paired variants require the same explicit adapter')
@@ -144,6 +146,11 @@ def compare_blocks(blocks, metric_name, policy, metric_scope=None, allow_command
     result['limitations'].extend(['ABBA contributes one block observation, not two independent pairs.',
                                   'Marginal CVs describe drift/noise; the paired stability gate uses block-ratio CV.',
                                   'No claim of independent blocks, removal of background interference or causality follows from pairing.'])
+    from .validity import evaluate_paired_validity, apply_validity
+    from .comparison import normalized_cost, decisions
+    apply_validity(result,evaluate_paired_validity(blocks,metric_name,metric_scope))
+    result['normalized_cost']=normalized_cost(result)
+    result['decisions']=decisions(result)
     if execution_kind=='concurrent_ab':
         result['execution_context']={'kind':'concurrent_ab','concurrent_runs':2,
                                      'competition_pair_identity':shared_context['competition_pair_identity'],
@@ -161,99 +168,105 @@ def run_paired(spec, requests, store):
             'runs':[],'comparisons':[],'growth':{},'secondary_growth':{},'blocks':schedule(spec),
             'execution_budget':paired_budget(spec,requests),'resource_isolation_enforced':False,'error':None}
     from .lifecycle import StudyProgress,notify_record_created
+    from .workflowphase import begin, session, finalize_into
     progress=StudyProgress(result,directory,requests.values(),result['execution_budget']['run_calls'])
     write_json(directory/'study.json',result)
     completed=[]
     try:
         notify_record_created('study',identifier)
-        expected={}
-        for variant,request in requests.items():
-            path=directory/variant;path.mkdir()
-            expected[variant]=fingerprints(request,path)
-        for block in result['blocks']:
-            block['status']='running';native=[]
-            if spec['resource_conditions']['concurrent_runs']==2:
-                from .concurrent import run_wave
-                wave_orders=[block['order'][:2],block['order'][2:]] if block['order']=='ABBA' else [block['order']]
-                for wave_index,wave_order in enumerate(wave_orders):
-                    wave_id=block['block_id']+'-wave-%02d'%wave_index
-                    members=[]
-                    for slot_offset,letter in enumerate(wave_order):
-                        slot=slot_offset if block['order']!='ABBA' else wave_index*2+slot_offset
-                        variant='baseline' if letter=='A' else 'candidate'
-                        request=copy.deepcopy(requests[variant])
-                        request['name']=spec['name']+'/'+block['block_id']+'/'+str(slot)+'/'+variant
-                        require(identity_snapshot(request)==expected[variant],'Inputs or artifacts changed before paired member launch')
-                        members.append({'slot':slot,'variant':variant,'request':request})
-                    wave_context={'kind':'concurrent_ab','study_id':identifier,'block_id':block['block_id'],'wave_id':wave_id,
-                        'concurrent_runs':2,'competition_pair_identity':expected,
-                        'resource_conditions':spec['resource_conditions']}
-                    created=[]
-                    def child_created(slot,variant,run_id):
-                        child={'block_id':block['block_id'],'slot':slot,'variant':variant,'run_id':run_id,
-                               'status':'running','wave_id':wave_id}
-                        result['runs'].append(child);block['members'].append(child)
-                        index=progress.register_child('run',run_id,{'block_id':block['block_id'],'wave_id':wave_id,'slot':slot,'variant':variant})
-                        created.append((child,index))
-                        write_json(directory/'study.json',result)
-                    try:
-                        measured_runs,wave=run_wave(members,store,directory/'waves'/wave_id,wave_context,child_created)
-                    except LabError as error:
-                        wave=error.details.get('wave',{})
+        record = begin(spec, requests, store, identifier, directory)
+        if record is not None:
+            result["workflow"] = record
+            write_json(directory / "study.json", result)
+        with session(record):
+            expected={}
+            for variant,request in requests.items():
+                path=directory/variant;path.mkdir()
+                expected[variant]=fingerprints(request,path)
+            for block in result['blocks']:
+                block['status']='running';native=[]
+                if spec['resource_conditions']['concurrent_runs']==2:
+                    from .concurrent import run_wave
+                    wave_orders=[block['order'][:2],block['order'][2:]] if block['order']=='ABBA' else [block['order']]
+                    for wave_index,wave_order in enumerate(wave_orders):
+                        wave_id=block['block_id']+'-wave-%02d'%wave_index
+                        members=[]
+                        for slot_offset,letter in enumerate(wave_order):
+                            slot=slot_offset if block['order']!='ABBA' else wave_index*2+slot_offset
+                            variant='baseline' if letter=='A' else 'candidate'
+                            request=copy.deepcopy(requests[variant])
+                            request['name']=spec['name']+'/'+block['block_id']+'/'+str(slot)+'/'+variant
+                            require(identity_snapshot(request)==expected[variant],'Inputs or artifacts changed before paired member launch')
+                            members.append({'slot':slot,'variant':variant,'request':request})
+                        wave_context={'kind':'concurrent_ab','study_id':identifier,'block_id':block['block_id'],'wave_id':wave_id,
+                            'concurrent_runs':2,'competition_pair_identity':expected,
+                            'resource_conditions':spec['resource_conditions']}
+                        created=[]
+                        def child_created(slot,variant,run_id):
+                            child={'block_id':block['block_id'],'slot':slot,'variant':variant,'run_id':run_id,
+                                   'status':'running','wave_id':wave_id}
+                            result['runs'].append(child);block['members'].append(child)
+                            index=progress.register_child('run',run_id,{'block_id':block['block_id'],'wave_id':wave_id,'slot':slot,'variant':variant})
+                            created.append((child,index))
+                            write_json(directory/'study.json',result)
+                        try:
+                            measured_runs,wave=run_wave(members,store,directory/'waves'/wave_id,wave_context,child_created)
+                        except LabError as error:
+                            wave=error.details.get('wave',{})
+                            for child,index in created:
+                                measured=store.read(child['run_id'])
+                                child.update(status=measured['status'],started_at=measured['started_at'],ended_at=measured['ended_at'],wave_id=wave_id,wave=wave)
+                                if index is not None:progress.finish_child(index)
+                            write_json(directory/'study.json',result)
+                            raise
+                        by_id={record['run_id']:record for record in measured_runs}
                         for child,index in created:
-                            measured=store.read(child['run_id'])
+                            measured=by_id[child['run_id']]
                             child.update(status=measured['status'],started_at=measured['started_at'],ended_at=measured['ended_at'],wave_id=wave_id,wave=wave)
                             if index is not None:progress.finish_child(index)
+                        for item in members:
+                            slot=item['slot'];variant=item['variant'];measured=by_id[next(c['run_id'] for c,_ in created if c['slot']==slot)]
+                            if measured['status']!='completed':
+                                block['status']='cancelled' if measured['status']=='cancelled' else 'failed'
+                                raise LabError(measured['error']['category'],
+                                    'Concurrent paired member failed; no block was dropped or retried',{'member':next(c for c,_ in created if c['slot']==slot),'wave':wave})
+                            require(measured['identity']==expected[variant],'Inputs or artifacts changed since paired study registration')
+                            native.append({**next(c for c,_ in created if c['slot']==slot),'run':measured})
                         write_json(directory/'study.json',result)
-                        raise
-                    by_id={record['run_id']:record for record in measured_runs}
-                    for child,index in created:
-                        measured=by_id[child['run_id']]
-                        child.update(status=measured['status'],started_at=measured['started_at'],ended_at=measured['ended_at'],wave_id=wave_id,wave=wave)
-                        if index is not None:progress.finish_child(index)
-                    for item in members:
-                        slot=item['slot'];variant=item['variant'];measured=by_id[next(c['run_id'] for c,_ in created if c['slot']==slot)]
-                        if measured['status']!='completed':
-                            block['status']='cancelled' if measured['status']=='cancelled' else 'failed'
-                            raise LabError(measured['error']['category'],
-                                'Concurrent paired member failed; no block was dropped or retried',{'member':next(c for c,_ in created if c['slot']==slot),'wave':wave})
-                        require(measured['identity']==expected[variant],'Inputs or artifacts changed since paired study registration')
-                        native.append({**next(c for c,_ in created if c['slot']==slot),'run':measured})
+                    block['status']='completed';completed.append({**block,'members':native})
                     write_json(directory/'study.json',result)
+                    continue
+                for slot,letter in enumerate(block['order']):
+                    variant='baseline' if letter=='A' else 'candidate'
+                    result['active_member']={'block_id':block['block_id'],'slot':slot,'variant':variant}
+                    write_json(directory/'study.json',result)
+                    request=copy.deepcopy(requests[variant])
+                    request['name']=spec['name']+'/'+block['block_id']+'/'+str(slot)+'/'+variant
+                    require(identity_snapshot(request)==expected[variant],'Inputs or artifacts changed before paired member launch')
+                    with progress.delegate('run',dict(result['active_member'])):
+                        measured=run(request,store)
+                    member={'block_id':block['block_id'],'slot':slot,'variant':variant,'run_id':measured['run_id'],
+                            'status':measured['status'],'started_at':measured['started_at'],'ended_at':measured['ended_at']}
+                    result['runs'].append(member);block['members'].append(member)
+                    write_json(directory/'study.json',result)
+                    if measured['status']!='completed':
+                        block['status']='cancelled' if measured['status']=='cancelled' else 'failed'
+                        details={'member':member,'error':measured['error']}
+                        if 'acceptance' in measured['error']['details']:details['acceptance']=measured['error']['details']['acceptance']
+                        raise LabError(measured['error']['category'],'Paired member failed; no block was dropped or retried',details)
+                    require(measured['identity']==expected[variant],'Inputs or artifacts changed since paired study registration')
+                    native.append({**member,'run':measured})
                 block['status']='completed';completed.append({**block,'members':native})
                 write_json(directory/'study.json',result)
-                continue
-            for slot,letter in enumerate(block['order']):
-                variant='baseline' if letter=='A' else 'candidate'
-                result['active_member']={'block_id':block['block_id'],'slot':slot,'variant':variant}
-                write_json(directory/'study.json',result)
-                request=copy.deepcopy(requests[variant])
-                request['name']=spec['name']+'/'+block['block_id']+'/'+str(slot)+'/'+variant
-                require(identity_snapshot(request)==expected[variant],'Inputs or artifacts changed before paired member launch')
-                with progress.delegate('run',dict(result['active_member'])):
-                    measured=run(request,store)
-                member={'block_id':block['block_id'],'slot':slot,'variant':variant,'run_id':measured['run_id'],
-                        'status':measured['status'],'started_at':measured['started_at'],'ended_at':measured['ended_at']}
-                result['runs'].append(member);block['members'].append(member)
-                write_json(directory/'study.json',result)
-                if measured['status']!='completed':
-                    block['status']='cancelled' if measured['status']=='cancelled' else 'failed'
-                    details={'member':member,'error':measured['error']}
-                    if 'acceptance' in measured['error']['details']:details['acceptance']=measured['error']['details']['acceptance']
-                    raise LabError(measured['error']['category'],'Paired member failed; no block was dropped or retried',details)
-                require(measured['identity']==expected[variant],'Inputs or artifacts changed since paired study registration')
-                native.append({**member,'run':measured})
-            block['status']='completed';completed.append({**block,'members':native})
-            write_json(directory/'study.json',result)
-        descriptors=[{'metric':spec['metric'],'metric_scope':spec.get('metric_scope'),'policy':spec['policy']},*spec.get('secondary_metrics',[])]
-        # Validate every comparison before publishing any successful score.
-        comparisons=[compare_blocks(completed,d['metric'],d['policy'],d.get('metric_scope'),spec.get('allow_command_change',False)) for d in descriptors]
-        for comparison in comparisons:
-            cid,folder=store.create('comparisons')
-            comparison.update(comparison_id=cid,study_id=identifier)
-            write_json(folder/'comparison.json',comparison)
-            result['comparisons'].append(comparison)
-        result['status']='completed'
+            descriptors=[{'metric':spec['metric'],'metric_scope':spec.get('metric_scope'),'policy':spec['policy']},*spec.get('secondary_metrics',[])]
+            # Validate every comparison before publishing any successful score.
+            comparisons=[compare_blocks(completed,d['metric'],d['policy'],d.get('metric_scope'),spec.get('allow_command_change',False)) for d in descriptors]
+            for comparison in comparisons:
+                cid,folder=store.create('comparisons')
+                comparison.update(comparison_id=cid,study_id=identifier)
+                write_json(folder/'comparison.json',comparison)
+                result['comparisons'].append(comparison)
+            result['status']='completed'
     except LabError as error:
         result['status']='cancelled' if error.category=='cancelled' else 'failed';result['error']=error.as_dict()
     except KeyboardInterrupt:
@@ -264,6 +277,7 @@ def run_paired(spec, requests, store):
         result['status']='failed';result['error']=LabError('internal_error',str(error)).as_dict()
         raise
     finally:
+        finalize_into(result, store)
         progress.terminal()
         if result['status'] in ('failed','cancelled'):
             for block in result['blocks']:

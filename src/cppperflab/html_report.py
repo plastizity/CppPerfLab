@@ -282,8 +282,12 @@ def comparisons_section(view):
             content.append(details('并发竞争条件',c['execution_context']))
         from .comparison import normalized_cost, decisions
         verdict=decisions(c)
-        labels={'correctness':'正确性','comparability':'可比性','statistics':'统计筛查','non_regression':'回退门槛','performance_target':'预设目标','improvement':'加速证据'}
+        labels={'correctness':'正确性','comparability':'可比性','statistics':'统计筛查','non_regression':'回退门槛','performance_target':'预设目标','improvement':'统计改善证据'}
+        if 'validity' in verdict:labels['validity']='契约有效性'
+        if 'claim_support' in verdict:labels['claim_support']='条件化主张支持'
         content.append(table(['判断项','结论','依据'],[[label,esc(verdict[key]['status']),esc(verdict[key]['reason'])] for key,label in labels.items()]))
+        if 'validity' in c:content.append(details('主张与条件检查',c['validity']))
+        if 'claim_acceptance' in c:content.append(details('主张验收',c['claim_acceptance']))
         content.append('<p>回退门槛通过不代表确认加速；局部改善不代表全过程改善。</p>')
         content.append(details("归一化性能成本（基线 1，越小越好）与验收", normalized_cost(c)))
         if not c["comparable"]:
@@ -400,8 +404,13 @@ def agent_summary_section(report):
     body='<p class="notice">此摘要与 Agent 报告共用同一次分析。执行完成、验收通过和获得加速分别判断。</p>'
     body+=table(['项目','结论'],[
         ['执行状态',esc(report['status'])],
+        ['本记录契约有效性',esc(report['validity']['status'])],
+        ['实验阶段',esc(report['workflow'].get('phase','未声明')) if report['workflow'] is not None else '未声明'],
+        ['父 Study 执行状态',esc(report['workflow']['parent_study_status']) if report['workflow'] is not None and 'parent_study_status' in report['workflow'] else '不适用'],
+        ['阶段记录验证',esc(report['workflow']['status']) if report['workflow'] is not None and 'status' in report['workflow'] else '未记录'],
         ['联合验收',esc(assessment['acceptance']) if assessment is not None else '未建立联合验收'],
         ['全过程加速',esc(assessment['end_to_end_improvement']) if assessment is not None else '查看各比较的范围与加速证据'],
+        ['工程采纳','由使用方决定'],
     ])
     comparisons=report['comparisons']
     rows=[]
@@ -412,11 +421,40 @@ def agent_summary_section(report):
             number(row.get('baseline_median')),number(row.get('candidate_median')),esc(row.get('unit','—')),
             number(cost['value']) if cost is not None else '—',
             esc(row['acceptance']['status']) if row.get('acceptance') is not None else '未建立',
+            esc(row['validity']['status']),
+            esc(row['claim_acceptance']['status']) if row.get('claim_acceptance') is not None else '未建立',
             esc(row['decisions']['improvement']['status']) if 'decisions' in row else '未建立',
         ])
-    body+=table(['指标','输入','范围','基线','候选','单位','相对成本','验收','改善证据'],rows)
+    body+=table(['指标','输入','范围','基线','候选','单位','相对成本','单项验收','有效性','主张验收','统计改善'],rows)
     body+='<p class="muted">比较共 '+esc(comparisons['total'])+' 项，展示 '+esc(comparisons['returned'])+' 项，省略 '+esc(comparisons['omitted'])+' 项常规明细。失败、回退与证据不足项始终保留；完整结果见下方实验比较。</p>'
     body+=details('警示与覆盖缺口',{'attention':report['attention'],'coverage':report['coverage']})
+    return body
+
+
+def validity_section(view):
+    """Display recorded gates without converting execution or declarations into proof."""
+    validity=view['validity']
+    workflow=view['workflow']
+    body='<p class="notice">有效性只覆盖实际记录的检查；声明、动作和验证各自保留范围。实验阶段仅表示用途，父 Study 和阶段记录均需完成才能确认来源；其状态不证明统计独立、改善或采纳。</p>'
+    if view['view_kind']=='study' and validity['status']=='NOT_CONFIGURED':
+        body+='<p class="notice">此 Study 没有独立的有效性汇总结论；请查看各项比较与来源 Run 的契约检查，不能据此认定它们未配置契约。</p>'
+    body+=table(['判断项','记录结论'],[
+        ['执行状态',esc(view['status'])],
+        ['本记录契约有效性',esc(validity['status'])+' / '+esc(validity['assessment_scope'])],
+        ['实验阶段',esc(workflow.get('phase','未声明')) if workflow is not None else '未声明'],
+        ['父 Study 执行状态',esc(workflow['parent_study_status']) if workflow is not None and 'parent_study_status' in workflow else '不适用'],
+        ['阶段记录验证',esc(workflow['status']) if workflow is not None and 'status' in workflow else '未记录'],
+        ['工程采纳','由使用方决定'],
+    ])
+    body+=table(['条件','来源','必要','结果','原因','证据引用'],[
+        [esc(row['id']),esc(row['source']),esc(row['required']),esc(row['status']),esc(row['reason']),esc(row['evidence_refs'])]
+        for row in validity['conditions']])
+    body+=details('主张及有效性限制',validity)
+    if workflow is not None:body+=details('阶段、冻结、来源及 A/A 校准',workflow)
+    if view['execution_state_evidence']:
+        body+=details('状态动作与验证记录',view['execution_state_evidence'])
+    issues=[source for source in view['source_records'] if source['validity']['status'] not in ('PASS','NOT_CONFIGURED') or source['validity']['conditions']]
+    if issues:body+=details('所有来源中的有效性问题',issues)
     return body
 
 
@@ -440,6 +478,7 @@ def render_html(view, store, output, *, agent_report=None):
         sections[2] = (sections[2][0], sections[2][1], details('实验错误', view['error']) + sections[2][2])
     if agent_report is not None:
         sections.insert(0,('decision-summary','结论摘要',agent_summary_section(agent_report)))
+    sections.append(('validity','实验有效性与阶段',validity_section(view)))
     if view.get('lifecycle') is not None or view.get('candidate') is not None:
         sections.append(('lifecycle','实验进度与候选记录',lifecycle_section(view)))
     if view['view_kind'] in ('run', 'summary'):

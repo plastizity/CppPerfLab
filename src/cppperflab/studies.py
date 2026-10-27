@@ -109,6 +109,18 @@ def load_study(path,store=None):
         spec = json.loads(path.read_text(),parse_constant=lambda s: (_ for _ in ()).throw(ValueError(s)))
     except (ValueError, OSError) as error:
         raise LabError("invalid_request", "Cannot read study", {"reason": str(error)}) from error
+    has_workflow = isinstance(spec, dict) and "workflow" in spec
+    if has_workflow:
+        from .contracts import validate_workflow
+        workflow = spec.pop("workflow")
+        validate_workflow(workflow)
+    loaded, requests = _load_study(spec, path, store)
+    if has_workflow:
+        loaded["workflow"] = workflow
+    return loaded, requests
+
+
+def _load_study(spec,path,store=None):
     if isinstance(spec,dict) and spec.get('analysis')=='assessment':
         require(store is not None,'Assessments require the selected Store for archived samples')
         from .assessment import load_assessment
@@ -159,6 +171,18 @@ def load_study(path,store=None):
     return spec, template
 
 
+def _growth_request(spec, template, variant, scale):
+    request = copy.deepcopy(template)
+    request["name"] = spec["name"] + "/" + variant["id"] + "/" + str(scale)
+    request["workload"]["parameters"][spec["axis"]["parameter"]] = scale
+    request["target"]["argv"][0] = variant["executable"]
+    request["target"]["argv"][spec["axis"]["argument_index"]] = str(scale)
+    request["target"]["build"]["revision"] = variant["revision"]
+    request["target"]["build"]["artifacts"] = variant["artifacts"]
+    request["correctness"]["argv"] = [s.replace("{candidate}", variant["executable"]) for s in request["correctness"]["argv"]]
+    return request
+
+
 def study(path, store):
     spec, template = load_study(path,store)
     if spec.get('analysis')=='assessment':
@@ -174,6 +198,7 @@ def study(path, store):
     result = {"schema_version": 1, "study_id": identifier, "status": "running", "spec": spec,
               "started_at": utc(), "runs": [], "comparisons": [], "growth": {}, "secondary_growth": {}, "error": None}
     from .lifecycle import StudyProgress,notify_record_created
+    from .workflowphase import begin, session, finalize_into
     jobs = [(variant, value) for value in spec["axis"]["values"] for variant in spec["variants"]]
     progress=StudyProgress(result,directory,[template],len(jobs))
     write_json(directory / "study.json", result)
@@ -181,51 +206,48 @@ def study(path, store):
     results = {}
     try:
         notify_record_created('study',identifier)
-        for index, (variant, scale) in enumerate(jobs):
-            request = copy.deepcopy(template)
-            request["name"] = spec["name"] + "/" + variant["id"] + "/" + str(scale)
-            request["workload"]["parameters"][spec["axis"]["parameter"]] = scale
-            request["target"]["argv"][0] = variant["executable"]
-            request["target"]["argv"][spec["axis"]["argument_index"]] = str(scale)
-            request["target"]["build"]["revision"] = variant["revision"]
-            request["target"]["build"]["artifacts"] = variant["artifacts"]
-            # The independent oracle receives the candidate executable as argv, never rewritten by a candidate.
-            request["correctness"]["argv"] = [s.replace("{candidate}", variant["executable"]) for s in request["correctness"]["argv"]]
-            config = directory / ("request-%03d.json" % index)
-            write_json(config, request)
-            with progress.delegate('run',dict(variant=variant['id'],scale=scale,index=index)):
-                measured = run(load_request(config), store)
-            result["runs"].append({"variant": variant["id"], "scale": scale, "run_id": measured["run_id"], "status": measured["status"]})
+        record = begin(spec, {json.dumps([variant["id"], scale]): _growth_request(spec, template, variant, scale) for variant, scale in jobs}, store, identifier, directory)
+        if record is not None:
+            result["workflow"] = record
             write_json(directory / "study.json", result)
-            if measured["status"] != "completed":
-                raise LabError(measured["error"]["category"], "Candidate rejected; no score assigned", {"run_id": measured["run_id"], "error": measured["error"]})
-            results[(variant["id"], scale)] = measured
-        for metric_name in [spec['metric'],*spec.get('secondary_metrics',[])]:
-            destination=result['growth'] if metric_name==spec['metric'] else result['secondary_growth'].setdefault(metric_name,{})
-            for variant in spec['variants']:
-                points=[]
-                for scale in spec['axis']['values']:
-                    measured=results[(variant['id'],scale)]
-                    entries=[[m for m in sample['metrics'] if m['name']==metric_name] for sample in measured['samples']]
-                    require(bool(entries) and all(len(row)==1 for row in entries),'Study metric missing or duplicated in a sample: '+metric_name)
-                    require(all(evidence_state(row[0])=='Measured' and
-                                (row[0]['method']!='hardware-counter' or 99<=row[0].get('running_percent',0)<=100)
-                                for row in entries),'Study requires measured, full-coverage observations')
-                    summaries=[s for s in measured['summary'] if s['name']==metric_name]
-                    require(len(summaries)==1,'Study metric missing or has mixed semantics')
-                    points.append({'x':scale,'run_id':measured['run_id'],**summaries[0]})
-                if spec.get('analysis')=='strong_scaling':
-                    if metric_name==spec['metric']:
-                        result.setdefault('scaling',{})[variant['id']]=strong_scaling(results,variant['id'],spec)
-                    destination[variant['id']]={'points':points,'limitations':['Worker sweep: no algorithm growth fit; fixed workload required.']}
-                else:
-                    destination[variant['id']]=fit_growth(points) if len(points)>=4 else {'points':points,'limitations':['Need at least four scales for fitting']}
-        first = spec["variants"][0]["id"]
-        for scale in spec["axis"]["values"]:
-            for variant in spec["variants"][1:]:
-                c = compare(results[(first, scale)], results[(variant["id"], scale)], spec["metric"])
-                result["comparisons"].append({"scale": scale, "baseline_variant": first, "candidate_variant": variant["id"], **c})
-        result["status"] = "completed"
+        with session(record):
+            for index, (variant, scale) in enumerate(jobs):
+                request = _growth_request(spec, template, variant, scale)
+                config = directory / ("request-%03d.json" % index)
+                write_json(config, request)
+                with progress.delegate('run',dict(variant=variant['id'],scale=scale,index=index)):
+                    measured = run(load_request(config), store)
+                result["runs"].append({"variant": variant["id"], "scale": scale, "run_id": measured["run_id"], "status": measured["status"]})
+                write_json(directory / "study.json", result)
+                if measured["status"] != "completed":
+                    raise LabError(measured["error"]["category"], "Candidate rejected; no score assigned", {"run_id": measured["run_id"], "error": measured["error"]})
+                results[(variant["id"], scale)] = measured
+            for metric_name in [spec['metric'],*spec.get('secondary_metrics',[])]:
+                destination=result['growth'] if metric_name==spec['metric'] else result['secondary_growth'].setdefault(metric_name,{})
+                for variant in spec['variants']:
+                    points=[]
+                    for scale in spec['axis']['values']:
+                        measured=results[(variant['id'],scale)]
+                        entries=[[m for m in sample['metrics'] if m['name']==metric_name] for sample in measured['samples']]
+                        require(bool(entries) and all(len(row)==1 for row in entries),'Study metric missing or duplicated in a sample: '+metric_name)
+                        require(all(evidence_state(row[0])=='Measured' and
+                                    (row[0]['method']!='hardware-counter' or 99<=row[0].get('running_percent',0)<=100)
+                                    for row in entries),'Study requires measured, full-coverage observations')
+                        summaries=[s for s in measured['summary'] if s['name']==metric_name]
+                        require(len(summaries)==1,'Study metric missing or has mixed semantics')
+                        points.append({'x':scale,'run_id':measured['run_id'],**summaries[0]})
+                    if spec.get('analysis')=='strong_scaling':
+                        if metric_name==spec['metric']:
+                            result.setdefault('scaling',{})[variant['id']]=strong_scaling(results,variant['id'],spec)
+                        destination[variant['id']]={'points':points,'limitations':['Worker sweep: no algorithm growth fit; fixed workload required.']}
+                    else:
+                        destination[variant['id']]=fit_growth(points) if len(points)>=4 else {'points':points,'limitations':['Need at least four scales for fitting']}
+            first = spec["variants"][0]["id"]
+            for scale in spec["axis"]["values"]:
+                for variant in spec["variants"][1:]:
+                    c = compare(results[(first, scale)], results[(variant["id"], scale)], spec["metric"])
+                    result["comparisons"].append({"scale": scale, "baseline_variant": first, "candidate_variant": variant["id"], **c})
+            result["status"] = "completed"
     except LabError as error:
         result["status"] = "cancelled" if error.category=='cancelled' else "failed"
         result["error"] = error.as_dict()
@@ -237,6 +259,7 @@ def study(path, store):
     except Exception as error:
         result['status']='failed';result['error']=LabError('internal_error',str(error)).as_dict();raise
     finally:
+        finalize_into(result, store)
         progress.terminal()
         result["ended_at"] = utc()
         write_json(directory / "study.json", result)

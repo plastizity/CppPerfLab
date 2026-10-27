@@ -1,5 +1,6 @@
 """File-driven case matrices extend Study and delegate all measurement/comparison."""
 import copy
+import json
 from pathlib import Path
 import random
 
@@ -66,42 +67,48 @@ def run_cases(spec,bound,store):
             'execution_budget':case_budget(spec,bound),'cases':[{'sample_id':s,'status':'pending','capture_result':metadata[s]['result'],
               'capture_correctness':metadata[s]['correctness'],'capture_observation':metadata[s]['observation']} for s in spec['samples']]}
     from .lifecycle import StudyProgress,notify_record_created
+    from .workflowphase import begin, session, finalize_into
     progress=StudyProgress(result,directory,bound.values(),result['execution_budget']['run_calls'])
     write_json(directory/'study.json',result)
     jobs=list(bound);random.Random(spec['seed']).shuffle(jobs);result['scheduled_jobs']=[{'sample_id':s,'variant':v} for s,v in jobs]
     measured={}
     try:
         notify_record_created('study',id)
-        for index,(sample,variant) in enumerate(jobs):
-            result['active_job']={'sample_id':sample,'variant':variant,'index':index}
-            for row in result['cases']:
-                if row['sample_id']==sample:row['status']='running'
-            write_json(directory/'study.json',result)
-            request=copy.deepcopy(bound[(sample,variant)]);request['name']=spec['name']+'/'+sample+'/'+variant
-            with progress.delegate('run',dict(result['active_job'])):
-                native=run(request,store)
-            result['runs'].append({'sample_id':sample,'variant':variant,'run_id':native['run_id'],'status':native['status']})
-            write_json(directory/'study.json',result)
-            if native['status']!='completed':
-                details={'sample_id':sample,'variant':variant,'run_id':native['run_id'],'error':native['error']}
-                if 'acceptance' in native['error']['details']:details['acceptance']=native['error']['details']['acceptance']
-                raise LabError(native['error']['category'],'Case member failed; input retained and no successful subset is scored',details)
-            measured[(sample,variant)]=native
-            if all((sample,v) in measured for v in spec['requests']):
+        record = begin(spec, {json.dumps([sample, variant]): request for (sample, variant), request in bound.items()}, store, id, directory)
+        if record is not None:
+            result["workflow"] = record
+            write_json(directory / "study.json", result)
+        with session(record):
+            for index,(sample,variant) in enumerate(jobs):
+                result['active_job']={'sample_id':sample,'variant':variant,'index':index}
                 for row in result['cases']:
-                    if row['sample_id']==sample:row['status']='completed'
-        comparisons=[]
-        for sample in spec['samples']:
-            for item in spec['comparisons']:
-                c=compare(measured[(sample,item['baseline'])],measured[(sample,item['candidate'])],item['metric'],
-                          item.get('allow_command_change',False),policy=item['policy'],metric_scope=item.get('metric_scope'))
-                c.update(case_id=sample,collection_id=spec['collection_id'],study_id=id,
-                         baseline_variant=item['baseline'],candidate_variant=item['candidate'])
-                comparisons.append(c)
-        for comparison in comparisons:
-            cid,path=store.create('comparisons');comparison['comparison_id']=cid
-            write_json(path/'comparison.json',comparison);result['comparisons'].append(comparison)
-        result['status']='completed'
+                    if row['sample_id']==sample:row['status']='running'
+                write_json(directory/'study.json',result)
+                request=copy.deepcopy(bound[(sample,variant)]);request['name']=spec['name']+'/'+sample+'/'+variant
+                with progress.delegate('run',dict(result['active_job'])):
+                    native=run(request,store)
+                result['runs'].append({'sample_id':sample,'variant':variant,'run_id':native['run_id'],'status':native['status']})
+                write_json(directory/'study.json',result)
+                if native['status']!='completed':
+                    details={'sample_id':sample,'variant':variant,'run_id':native['run_id'],'error':native['error']}
+                    if 'acceptance' in native['error']['details']:details['acceptance']=native['error']['details']['acceptance']
+                    raise LabError(native['error']['category'],'Case member failed; input retained and no successful subset is scored',details)
+                measured[(sample,variant)]=native
+                if all((sample,v) in measured for v in spec['requests']):
+                    for row in result['cases']:
+                        if row['sample_id']==sample:row['status']='completed'
+            comparisons=[]
+            for sample in spec['samples']:
+                for item in spec['comparisons']:
+                    c=compare(measured[(sample,item['baseline'])],measured[(sample,item['candidate'])],item['metric'],
+                              item.get('allow_command_change',False),policy=item['policy'],metric_scope=item.get('metric_scope'))
+                    c.update(case_id=sample,collection_id=spec['collection_id'],study_id=id,
+                             baseline_variant=item['baseline'],candidate_variant=item['candidate'])
+                    comparisons.append(c)
+            for comparison in comparisons:
+                cid,path=store.create('comparisons');comparison['comparison_id']=cid
+                write_json(path/'comparison.json',comparison);result['comparisons'].append(comparison)
+            result['status']='completed'
     except LabError as error:
         result['status']='cancelled' if error.category=='cancelled' else 'failed';result['error']=error.as_dict()
     except KeyboardInterrupt:result['status']='cancelled';result['error']=LabError('cancelled','Case study cancelled').as_dict()
@@ -109,6 +116,7 @@ def run_cases(spec,bound,store):
     except Exception as error:
         result['status']='failed';result['error']=LabError('internal_error',str(error)).as_dict();raise
     finally:
+        finalize_into(result, store)
         progress.terminal()
         if result['status'] in ('failed','cancelled'):
             for row in result['cases']:

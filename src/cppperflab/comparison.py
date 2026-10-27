@@ -68,6 +68,8 @@ def request_differences(a,b,allow_command_change=False,varying_parameter=None):
     if varying_parameter is not None:
         require(all(varying_parameter in r['workload']['parameters'] for r in (a,b)),'Declared varying parameter missing')
     same('sample_validation_contract',a['correctness'].get('sample_validation'),b['correctness'].get('sample_validation'))
+    for key in ('claim','execution_state'):
+        same(key,a.get(key),b.get(key))
     for key in ('cpu_affinity','options','warmups','limits','phase_report'):
         same('measurement.'+key,a['measurement'].get(key),b['measurement'].get(key))
     same('measurement.progress',a['measurement'].get('progress',False),b['measurement'].get('progress',False))
@@ -253,6 +255,9 @@ def summarize_comparison(a,b,metric_name,unit,av,bv,policy,allow_command_change=
     result['evidence_state'] = 'Estimated'
     result['input_evidence_state'] = 'Measured'
     result['correctness_status'] = 'passed'
+    workflow=[r.get('workflow_context') for r in (a,b)]
+    if all(workflow) and all(workflow[0].get(k)==workflow[1].get(k) for k in ('study_id','phase','freeze_digest')):
+        result['workflow_context']={k:workflow[0][k] for k in ('study_id','phase','freeze_digest','freeze_monotonic_ns','clock')}
     result['ratio_semantics'] = 'baseline / candidate; not a runtime speedup unless a time metric'
     context=a.get('execution_context')
     if context is not None and context['kind']=='concurrent_ab':
@@ -261,6 +266,8 @@ def summarize_comparison(a,b,metric_name,unit,av,bv,policy,allow_command_change=
         result['ratio_semantics']='baseline / candidate under concurrent competition; not isolated serial speedup'
     result['runtime_reduction'] = 1-bm/am if metric_name.startswith('time.') else None
     result['regression_status'] = result['acceptance']['status']
+    from .validity import evaluate_comparison_validity, apply_validity
+    apply_validity(result,evaluate_comparison_validity(a,b,metric_name,metric_scope))
     result['normalized_cost'] = normalized_cost(result)
     result['decisions'] = decisions(result)
     return result
@@ -277,6 +284,15 @@ def normalized_cost(result):
             'unit':'ratio', 'lower_is_better':True, 'value':None,
             'interval_95_percent':None, 'evidence_state':'Missing',
             'acceptance_status':gate['status'], 'reason':gate['reason']}
+    if 'claim_acceptance' in result:
+        cost['claim_acceptance_status']=result['claim_acceptance']['status']
+        cost['meaning']='Descriptive relative objective for this metric and scope; not causal proof or adoption approval'
+    validity=result.get('validity')
+    if validity is not None and validity['status'] not in ('PASS','NOT_CONFIGURED'):
+        cost['reason']='Required claim or execution-state evidence did not pass; inspect validity'
+        cost['evidence_state']='Invalid' if validity['status']=='FAIL' else 'Unsupported' if validity['status']=='UNSUPPORTED' else 'Missing'
+        cost['acceptance_status']=result.get('claim_acceptance',validity)['status']
+        return cost
     if not result['comparable']:
         cost['reason'] = 'Comparison rejected; no valid relative cost'
         cost['evidence_state'] = 'Unsupported' if gate['status']=='UNSUPPORTED' else 'Invalid'
@@ -309,6 +325,10 @@ def decisions(result):
             'performance_target':{'status':'INCONCLUSIVE','reason':'No performance target declared'},
             'improvement':{'status':'NOT_ESTABLISHED','reason':'Evidence does not establish improvement'},
             'optimization_accepted':False}
+    validity=result.get('validity',{'status':'NOT_CONFIGURED'})
+    answer['validity']={'status':validity['status'],'reason':'Only declared and executed checks; inspect condition evidence'}
+    answer['claim_support']={'status':'NOT_CONFIGURED' if validity['status']=='NOT_CONFIGURED' else 'NOT_ESTABLISHED',
+                             'reason':'A statistical change alone does not establish the declared claim'}
     if not valid:return answer
     if correctness!='passed' or result.get('input_evidence_state')!='Measured':
         return answer
@@ -326,6 +346,13 @@ def decisions(result):
         answer['improvement']={'status':'SUPPORTED_IMPROVEMENT' if lo>1 else 'SUPPORTED_REGRESSION' if hi<1 else 'NOT_ESTABLISHED',
                                'benefit_interval_95_percent':[lo,hi],
                                'reason':'Direction-aware descriptive interval compared with 1; no materiality threshold or end-to-end claim'}
+    if validity.get('claim_kind')=='mechanism_hypothesis':
+        answer['claim_support']={'status':'HYPOTHESIS_ONLY','reason':'Checked conditions and performance data do not prove a causal mechanism'}
+    elif (validity['status']=='PASS' and validity.get('claim_kind') in ('task_cost','unit_efficiency')
+          and validity.get('claim_applicable') is not False
+          and result.get('claim_acceptance',{}).get('status')=='PASS'
+          and answer['improvement']['status']=='SUPPORTED_IMPROVEMENT'):
+        answer['claim_support']={'status':'SUPPORTED_UNDER_CONTRACT','reason':'Observed improvement and declared checks passed within their recorded scope'}
     return answer
 
 

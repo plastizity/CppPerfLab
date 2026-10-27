@@ -146,7 +146,7 @@ def parser():
             q.add_argument("name")
             q.add_argument("run_id")
         if name == "schema":
-            q.add_argument("kind", choices=("request", "result", "envelope", "study", "analysis", "query", "tools", "summary", "metrics", "evidence", "policy", "solver", "solver-validation", "phases", "sample-manifest", "collection", "runtime-identity", "sampling", "run-status", "study-status", "activity-timeline", "phase-mapping", "phase-summary", "scheduler-timeline", "agent-report"))
+            q.add_argument("kind", choices=("request", "result", "envelope", "study", "analysis", "query", "tools", "summary", "metrics", "evidence", "policy", "solver", "solver-validation", "phases", "sample-manifest", "collection", "runtime-identity", "sampling", "run-status", "study-status", "activity-timeline", "phase-mapping", "phase-summary", "scheduler-timeline", "agent-report", "claim", "execution-state", "state-verification", "validity", "workflow", "workflow-result"))
     return p
 
 
@@ -323,6 +323,17 @@ def dispatch(args):
                       "acceptance_policy":policy,
                       "acceptance":error.details.get("acceptance", {"status":"INCONCLUSIVE", "reason":"incomparable conditions"})}
         from .comparison import normalized_cost, decisions
+        if not result['comparable']:
+            from .validity import evaluate_comparison_validity, apply_validity
+            from .comparison import combine_gates
+            validity=result['error']['details'].get('validity')
+            if validity is None:
+                validity=evaluate_comparison_validity(baseline,candidate,args.metric,args.scope)
+            if validity['status']!='NOT_CONFIGURED':
+                validity['conditions'].append(dict(id='comparability',origin='platform',source='comparison',
+                    required=True,status='INCONCLUSIVE',evidence_refs=[],reason='Existing comparability checks rejected this comparison'))
+                validity['status']=combine_gates([validity['status'],'INCONCLUSIVE'])
+            apply_validity(result,validity)
         result["normalized_cost"] = normalized_cost(result)
         if not result["comparable"]:
             states=[r["correctness"]["status"] for r in (baseline,candidate)]

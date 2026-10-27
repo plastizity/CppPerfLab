@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cppperflab:state-verification:1",
+  "title": "Consumer execution-state verification v1",
+  "description": "A consumer verifier's reported result; PASS covers only the described checks.",
+  "type": "object",
+  "properties": {
+    "schema_version": {"const": 1},
+    "status": {"enum": ["PASS", "FAIL", "INCONCLUSIVE"]},
+    "description": {"type": "string", "minLength": 1},
+    "observations": {"type": "object"}
+  },
+  "required": ["schema_version", "status", "description"],
+  "additionalProperties": false
+}

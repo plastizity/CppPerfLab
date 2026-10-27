@@ -94,6 +94,9 @@ acceptance/improvement conclusions, read
 To import an existing project's text log using a deterministic format template or
 field-keyword mapping, read [phase log mapping](references/phase-mapping.md).
 
+For explicit performance claims, execution-state evidence and exploration/confirmation stages,
+read [experiment validity](references/validity.md).
+
 For preregistered serial or explicitly competing concurrent AB/BA or ABBA
 comparisons, read [paired studies](references/paired.md); ordinary compare remains
 unpaired. Concurrent results describe a competing pair and do not estimate isolated

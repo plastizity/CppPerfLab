@@ -50,6 +50,8 @@ def scheduling_tracepoints():
 
 def identity_snapshot(request):
     paths = [request["target"]["argv"][0], request["correctness"]["argv"][0]]
+    state=request.get('execution_state',{})
+    paths += [state[name]['argv'][0] for name in ('setup','reset','verify','cleanup') if name in state]
     if 'sample_validation' in request['correctness']:
         paths.append(request['correctness']['sample_validation']['argv'][0])
     paths += request["target"]["build"]["artifacts"]

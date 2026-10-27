@@ -6,6 +6,7 @@ import json
 
 from .errors import LabError
 from .performance_summary import dimension
+from .views import recorded_validity
 
 
 def _pick(source, fields):
@@ -34,6 +35,9 @@ def _subject(view, limit):
         result['measurement'] = _pick(conditions['measurement'], ('tool', 'repetitions', 'warmups', 'cpu_affinity'))
     if 'target' in conditions:
         result['build'] = _pick(conditions['target']['build'], ('revision', 'compiler', 'flags', 'mode'))
+    if 'execution_state' in conditions:
+        result['execution_state'] = _pick(conditions['execution_state'],
+            ('schema_version','scope','process','object_state','cache','external_state','required'))
     if 'execution_context' in conditions:
         context = conditions['execution_context']
         result['execution_context'] = _pick(context, ('kind', 'scope', 'concurrent_runs', 'resource_conditions',
@@ -73,13 +77,18 @@ def _assessment(view):
 def _decision_subset(decision):
     # Preserve each existing gate separately. Do not derive a combined decision.
     return {k: decision[k] for k in ('correctness', 'comparability', 'statistics', 'non_regression',
-                                    'performance_target', 'improvement', 'optimization_accepted') if k in decision}
+                                    'performance_target', 'improvement', 'validity', 'claim_support',
+                                    'optimization_accepted') if k in decision}
 
 
 def _critical(comparison):
     if not comparison['comparable'] or comparison.get('classification') == 'observed_regression':
         return True
     if comparison.get('acceptance', {}).get('status') != 'PASS':
+        return True
+    if recorded_validity(comparison)['status'] not in ('PASS','NOT_CONFIGURED'):
+        return True
+    if 'claim_acceptance' in comparison and comparison['claim_acceptance']['status'] != 'PASS':
         return True
     decisions = comparison.get('decisions', {})
     if decisions.get('improvement', {}).get('status') == 'SUPPORTED_REGRESSION':
@@ -95,8 +104,9 @@ def _comparison(row):
               'speedup', 'change_fraction', 'runtime_reduction', 'bootstrap_95_percent_speedup',
               'coefficient_of_variation', 'paired_ratio_cv', 'sample_unit', 'sufficient_samples',
               'stable_samples', 'evidence_state', 'input_evidence_state', 'ratio_semantics',
-              'acceptance', 'normalized_cost')
+              'acceptance', 'normalized_cost', 'claim_acceptance')
     result = _pick(row, fields)
+    result['validity'] = recorded_validity(row)
     if 'decisions' in row:
         result['decisions'] = _decision_subset(row['decisions'])
     if 'baseline_samples' in row:
@@ -185,14 +195,58 @@ def _attention(view):
                 sources.append(row)
             else:
                 existing.update(row)
-    return {'quality': issues, 'unavailable_observations': list(missing.values()), 'sources_requiring_review': sources}
+    validity_issues=[]
+    for source in view.get('source_records', []):
+        validity=source.get('validity')
+        if validity is not None and (validity['status'] not in ('PASS','NOT_CONFIGURED') or validity['conditions']):
+            validity_issues.append({'run_id':source['run_id'],'validity':validity})
+    return {'quality': issues, 'unavailable_observations': list(missing.values()),
+            'sources_requiring_review': sources, 'source_validity_issues':validity_issues}
+
+
+def _workflow(view):
+    workflow=view.get('workflow')
+    if workflow is None:
+        return None
+    result=_pick(workflow,('schema_version','study_id','phase','source_study_ids','selection_reason',
+        'selected_run_id','freeze_path','freeze_digest','frozen_at','freeze_monotonic_ns',
+        'run_started_monotonic_ns','clock','status','calibration','calibrations','source_confirmations','limitations','reason',
+        'optimization_accepted','parent_study_status','source_context'))
+    result['scope_note']=('Phase describes the requested role. Check the parent Study and workflow status; '
+                          'provenance does not establish statistical independence, performance improvement or adoption.')
+    return result
+
+
+def _state_evidence(view, limit):
+    def action_summary(action):
+        row=_pick(action,('name','status','evidence_refs'))
+        if 'error' in action:row['error']=_error(action['error'])
+        return row
+    def compact(entry):
+        row=_pick(entry,('schema_version','measurement_group','scope','status','evidence_refs','limitations'))
+        if 'verification' in entry:
+            row['verification']=None if entry['verification'] is None else _pick(entry['verification'],('status','description'))
+        if 'actions' in entry:
+            row['actions']=[action_summary(action) for action in entry['actions']]
+        if 'cleanup' in entry:
+            cleanup=entry['cleanup']
+            row['cleanup']=_pick(cleanup,('schema_version','status','evidence_refs'))
+            if 'action' in cleanup:row['cleanup']['action']=action_summary(cleanup['action'])
+        return row
+    entries=view.get('execution_state_evidence',[])
+    critical=[entry for entry in entries if entry['status']!='PASS' or
+              (entry.get('cleanup') is not None and entry['cleanup']['status']!='PASS')]
+    ordinary=[entry for entry in entries if entry not in critical]
+    return _collection([compact(entry) for entry in critical+ordinary[:limit]],len(entries))
 
 
 def _follow_up(view, store_root, subject):
     prefix = ['perflab', 'analyze', view['record_id'], '--kind', view['view_kind']]
     def section(name):
         return {'section': name, 'argv': prefix + ['--section', name, '--store', str(store_root), '--json']}
-    names = ['conditions', 'comparisons', 'metrics', 'quality', 'evidence']
+    names = ['conditions', 'comparisons', 'metrics', 'quality', 'evidence', 'validity']
+    if view.get('workflow') is not None:names.append('workflow')
+    if view.get('execution_state_evidence'):names.append('execution_state_evidence')
     if any(row['evidence_state'] in ('Missing','Invalid','Unsupported') for row in view['observations']):
         names.append('observations')
     if view.get('lifecycle') is not None:
@@ -247,6 +301,7 @@ def build_agent_report(view, store_root, limit=5):
     return {'schema_version': 1, 'report_type': 'agent', 'record_id': view['record_id'],
             'view_kind': view['view_kind'], 'status': view['status'], 'error': _error(view['error']),
             'optimization_accepted': False, 'subject': subject, 'assessment': _assessment(view),
+            'validity':view['validity'], 'workflow':_workflow(view), 'execution_state_evidence':_state_evidence(view,limit),
             'comparisons': _collection([_comparison(row) for row in selected], len(comparisons)),
             'metrics': _collection([_metric(group) for group in groups[:limit]], len(groups)),
             'hotspots': _collection(hotspots, len(view['hotspots'])),

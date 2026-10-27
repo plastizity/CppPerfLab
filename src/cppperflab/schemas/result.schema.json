@@ -27,28 +27,74 @@
     "execution_context": {
       "type": "object",
       "properties": {
-        "kind": {"enum": ["concurrent_ab", "serial"]},
-        "concurrent_runs": {"const": 2},
+        "kind": {
+          "enum": [
+            "concurrent_ab",
+            "serial"
+          ]
+        },
+        "concurrent_runs": {
+          "const": 2
+        },
         "competition_pair_identity": {
           "type": "object",
           "properties": {
-            "baseline": {"type": "object"},
-            "candidate": {"type": "object"}
+            "baseline": {
+              "type": "object"
+            },
+            "candidate": {
+              "type": "object"
+            }
           },
-          "required": ["baseline", "candidate"],
+          "required": [
+            "baseline",
+            "candidate"
+          ],
           "additionalProperties": false
         },
-        "resource_conditions": {"type": "object"},
-        "scope": {"type": "string", "minLength": 1},
-        "status": {"const": "PASS"},
-        "overlap_fraction": {"type": "number", "minimum": 0, "maximum": 1},
-        "overlap": {"type": "object"}
+        "resource_conditions": {
+          "type": "object"
+        },
+        "scope": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "const": "PASS"
+        },
+        "overlap_fraction": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "overlap": {
+          "type": "object"
+        }
       },
-      "required": ["kind"],
-      "allOf": [{
-        "if": {"properties": {"kind": {"const": "concurrent_ab"}}, "required": ["kind"]},
-        "then": {"required": ["concurrent_runs", "competition_pair_identity", "resource_conditions"]}
-      }],
+      "required": [
+        "kind"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "concurrent_ab"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "concurrent_runs",
+              "competition_pair_identity",
+              "resource_conditions"
+            ]
+          }
+        }
+      ],
       "additionalProperties": true
     },
     "workflow_cost": {
@@ -75,25 +121,38 @@
               "const": "CLOCK_MONOTONIC"
             },
             "boot_id": {
-              "type": ["string", "null"],
+              "type": [
+                "string",
+                "null"
+              ],
               "minLength": 1
             },
             "time_namespace": {
-              "type": ["string", "null"],
+              "type": [
+                "string",
+                "null"
+              ],
               "minLength": 1
             },
             "context_reason": {
               "type": "string"
             }
           },
-          "required": ["name", "boot_id", "time_namespace"],
+          "required": [
+            "name",
+            "boot_id",
+            "time_namespace"
+          ],
           "additionalProperties": false
         },
         "owner": {
           "$ref": "#/definitions/identity"
         },
         "cost_key": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "pattern": "^[0-9a-f]{64}$"
         },
         "implementation_sha256": {
@@ -101,11 +160,17 @@
           "pattern": "^[0-9a-f]{64}$"
         },
         "elapsed_seconds": {
-          "type": ["number", "null"],
+          "type": [
+            "number",
+            "null"
+          ],
           "minimum": 0
         },
         "evidence_state": {
-          "enum": ["Measured", "Invalid"]
+          "enum": [
+            "Measured",
+            "Invalid"
+          ]
         },
         "reason": {
           "type": "string",
@@ -113,8 +178,14 @@
         }
       },
       "required": [
-        "schema_version", "method", "scope", "started_monotonic_ns",
-        "clock", "cost_key", "implementation_sha256", "elapsed_seconds",
+        "schema_version",
+        "method",
+        "scope",
+        "started_monotonic_ns",
+        "clock",
+        "cost_key",
+        "implementation_sha256",
+        "elapsed_seconds",
         "evidence_state"
       ],
       "additionalProperties": false
@@ -465,6 +536,12 @@
             "allow_instrumentation"
           ],
           "additionalProperties": false
+        },
+        "claim": {
+          "$ref": "urn:cppperflab:claim:1"
+        },
+        "execution_state": {
+          "$ref": "urn:cppperflab:execution-state:1"
         }
       },
       "required": [
@@ -683,7 +760,9 @@
     },
     "scheduler_timelines": {
       "type": "array",
-      "items": {"type": "object"},
+      "items": {
+        "type": "object"
+      },
       "description": "Optional versioned profiles following scheduler-timeline.schema.json; absent means no such profile was requested or archived."
     },
     "sampling_precheck": {
@@ -712,6 +791,30 @@
       }
     },
     "phase_imports": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "validity": {
+      "$ref": "urn:cppperflab:validity:1"
+    },
+    "workflow_context": {
+      "type": "object"
+    },
+    "execution_state_evidence": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "execution_state_cleanup_evidence": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "execution_state_cleanup_errors": {
       "type": "array",
       "items": {
         "type": "object"
