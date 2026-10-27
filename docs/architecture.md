@@ -32,6 +32,16 @@ adapter operations, with no plugin loading or abstract inheritance hierarchy.
 `cli` handles presentation only. JSON files are the authoritative storage; scanning
 local result files is sufficient for the current scale, so SQLite is unnecessary.
 
+The consumer/platform agreement is maintained in
+[USAGE.md](../USAGE.md#平台与使用方的约定). Requirements owners define useful work and
+benefit; project/algorithm owners define workload equivalence, execution-state
+semantics, instrumentation and independent validation coverage. The platform owns
+the supported measurement lifecycle, evidence semantics and comparison gates.
+It checks supplied evidence, not scientific truth or unobserved state restoration.
+Domain knowledge and application-specific reset/restore logic remain consumer-owned;
+generic lifecycle and evidence handling remain in the existing Run/Study layers.
+Platform orchestration cost and target execution cost have distinct scopes.
+
 `views` creates a versioned analysis projection of run/comparison/study records.
 Agent queries select sections from that projection; `html_report` renders the same
 values, without a second statistics pipeline. Failed comparisons are archived as

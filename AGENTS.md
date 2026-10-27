@@ -9,6 +9,12 @@ requests in this repository, first read
 This is the single local **C++ Algorithm Performance Engineering** Skill.
 Discover capabilities through the CLI rather than maintaining a second tool list.
 
+Before defining an optimization claim, establish the consumer/platform agreement
+in [USAGE.md](USAGE.md#平台与使用方的约定). Consumers own task semantics, equivalence,
+state definitions, validation coverage and benefit requirements. The platform owns
+measurement/evidence integrity and supported checks; declared conditions are not
+proof, and passing an oracle or performance gate does not authorize adoption.
+
 Keep platform code independent of any domain, fixture, input range or candidate
 algorithm. Sample-specific assumptions belong only in `examples/` or tests.
 Use existing run/measurement/storage contracts for new analyses. Do not create
