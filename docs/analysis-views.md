@@ -4,6 +4,42 @@
 生成事实、质量信息和证据引用；HTML 只呈现这些数据，不重新计算统计结论。
 原始工具结果和实验协议保持不变。平台不收录使用方的业务场景或运行数据。
 
+## 一次导出人类与 Agent 两份报告
+
+```bash
+perflab report STUDY_ID --kind study --format both --output results/my-study --json
+perflab report RUN_ID --format agent --json
+perflab report COMPARISON_ID --kind comparison --format agent --output results/comparison.agent.json --json
+perflab schema agent-report --json
+```
+
+`both` 的 `--output` 是目录，生成 `report.html` 和 `report.agent.json`。
+Python 使用同一次 `build_view` 和同一份精简投影生成两者；HTML 顶部的结论摘要
+与 Agent 文件共用数值与结论，后续章节保留完整图表、样本和证据链接。
+导出结果返回 `paths.html` / `paths.agent`；这两个导出文件都不是权威实验记录。
+仅使用既有记录，不启动目标、重新测量或计算另一套统计。
+
+`agent` 不指定输出文件时，精简报告位于 JSON envelope 的 `result`；指定文件时
+文件直接保存精简报告，命令返回文件路径。原 `report --format json/text/html`
+和 `analyze` 的含义保持不变，原始 `json` 不会被替换成摘要。
+
+Agent 报告保留对象与条件摘要、执行状态、已有联合验收、逐项比较、关键指标、
+热点、原有假设、全部类型的质量警示、证据缺口和后续查询入口。不复制原始
+样本数组、完整环境、工具日志和构建文件哈希表，也不从热点自动断言根因。
+`assessment: null` 表示没有已有联合验收，不能把单 Run 的正确性通过当作性能
+PASS；每项比较的回退门和改善证据分别保留。并发竞争条件不会变成隔离串行加速。
+
+`--limit 1..200` 仅用于 `agent/both`，默认 5，限制普通比较及指标、热点、假设
+的明细数量。不可比、验收非 PASS、明确失败或回退的比较始终保留，故比较返回数
+可以超过 limit。集合中的 `total/returned/omitted` 明确被省略的数量；失败/取消
+的来源、候选撤回/替代状态、不可用证据及覆盖缺口不会被解释成成功或零值。
+完整原始条件和数据通过 `follow_up` 的 argv 数组按需查询，不能将其拼接为未转义
+的 shell 命令。归档证据由已有 `evidence` 接口读取，不在导出时重复计算其哈希。
+
+导出目标必须位于 Store 之外；`both` 中每个实际文件路径也检查符号链接的最终
+位置。失败实验仍可生成两份诊断报告，但命令保留原错误和退出码；导出文件存在
+不代表实验成功。多文件导出不承诺事务性，写入失败会报错，可能留下已写出的文件。
+
 ## 工具路径配置
 
 ```bash
@@ -103,6 +139,7 @@ HTML 必须指定 output，且不得写入权威实验存储，以免覆盖证�
 2. 三类真实独立示例 → JSON/HTML 数据一致性、失败与不可比路径验收。
 3. 本地工具配置 → 实际 probe 与错误路径测试。
 
-复用原有实验存储、统计引擎和 Adapter。MCP、Web 服务、时间线、结构化调用树、
-自定义阶段指标解析及自动 A/B 调度属于后续扩展，未注册为已实现功能。
+复用原有实验存储、统计引擎和 Adapter。阶段格式/关键字映射、应用/OS 切换时间线、
+预登记配对 A/B 已有实现，范围见[反馈清单](feedback-implementation.md)。MCP、Web
+服务、完整调用树与等待原因追踪仍不属于当前能力，双报告也不补造这些证据。
 完整验证见 [验收记录](acceptance.md)。

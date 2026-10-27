@@ -394,7 +394,33 @@ document.getElementById('download-view').addEventListener('click',()=>{
 """
 
 
-def render_html(view, store, output):
+def agent_summary_section(report):
+    """Present the same compact decisions exported for the Agent."""
+    assessment=report['assessment']
+    body='<p class="notice">此摘要与 Agent 报告共用同一次分析。执行完成、验收通过和获得加速分别判断。</p>'
+    body+=table(['项目','结论'],[
+        ['执行状态',esc(report['status'])],
+        ['联合验收',esc(assessment['acceptance']) if assessment is not None else '未建立联合验收'],
+        ['全过程加速',esc(assessment['end_to_end_improvement']) if assessment is not None else '查看各比较的范围与加速证据'],
+    ])
+    comparisons=report['comparisons']
+    rows=[]
+    for row in comparisons['items']:
+        cost=row.get('normalized_cost')
+        rows.append([
+            esc(row['metric']),esc(row.get('case_id','—')),esc(row.get('metric_scope','—')),
+            number(row.get('baseline_median')),number(row.get('candidate_median')),esc(row.get('unit','—')),
+            number(cost['value']) if cost is not None else '—',
+            esc(row['acceptance']['status']) if row.get('acceptance') is not None else '未建立',
+            esc(row['decisions']['improvement']['status']) if 'decisions' in row else '未建立',
+        ])
+    body+=table(['指标','输入','范围','基线','候选','单位','相对成本','验收','改善证据'],rows)
+    body+='<p class="muted">比较共 '+esc(comparisons['total'])+' 项，展示 '+esc(comparisons['returned'])+' 项，省略 '+esc(comparisons['omitted'])+' 项常规明细。失败、回退与证据不足项始终保留；完整结果见下方实验比较。</p>'
+    body+=details('警示与覆盖缺口',{'attention':report['attention'],'coverage':report['coverage']})
+    return body
+
+
+def render_html(view, store, output, *, agent_report=None):
     output = Path(output).resolve()
     evidence = []
     for entry in view["evidence"]:
@@ -412,6 +438,8 @@ def render_html(view, store, output):
                 ('quality', '可信度与限制', '<ul>' + quality + '</ul>' + '<ul>' + ''.join('<li>' + esc(x) + '</li>' for x in view["limitations"]) + '</ul>')]
     if view['error']:
         sections[2] = (sections[2][0], sections[2][1], details('实验错误', view['error']) + sections[2][2])
+    if agent_report is not None:
+        sections.insert(0,('decision-summary','结论摘要',agent_summary_section(agent_report)))
     if view.get('lifecycle') is not None or view.get('candidate') is not None:
         sections.append(('lifecycle','实验进度与候选记录',lifecycle_section(view)))
     if view['view_kind'] in ('run', 'summary'):
@@ -446,6 +474,8 @@ def render_html(view, store, output):
     snapshot = details('统一分析 JSON（与 Agent 全量查询相同）', view)
     # Escaped text inside a pre is never interpreted as executable JavaScript.
     snapshot = snapshot.replace('<pre>', '<pre id="view-json">', 1)
+    if agent_report is not None:
+        snapshot=details('Agent 精简报告',agent_report).replace('<pre>','<pre id="agent-report-json">',1)+snapshot
     return '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + esc(title) + '</title><style>' + CSS + '</style></head><body><main><h1>' + esc(title) + '</h1><p><span class="badge">' + esc(view['status']) + '</span> · 优化未自动批准</p><p class="notice">本报告展示已保存的测量与分析。采样占比、进程耗时、迭代耗时和堆占用保留各自语义。</p><nav>' + ''.join('<a href="#' + sid + '">' + label + '</a>' for sid, label, _ in sections) + '</nav>' + content + '<button id="download-view" type="button">下载统一分析 JSON</button>' + snapshot + '<footer>离线报告 · 无网络依赖 · 图表只呈现已保存数据 · 无完整调用栈时不生成火焰图</footer></main><script>' + JS + '</script></body></html>'
 
 

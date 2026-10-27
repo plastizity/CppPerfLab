@@ -74,6 +74,11 @@ metrics, correctness, comparison and reports. No business rebuild is implied.
 The full feedback implementation scope is tracked in
 [the implementation checklist](docs/feedback-implementation.md).
 
+For human and Agent handoff, `perflab report ID --format both --output results/report`
+exports an offline HTML report and compact `report.agent.json` from one analysis.
+Use `--kind study|comparison|summary` for other record types. See
+[dual reports and progressive queries](docs/analysis-views.md).
+
 ## Algorithm experiments
 
 ```bash

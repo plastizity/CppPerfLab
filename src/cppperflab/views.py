@@ -25,12 +25,31 @@ def base_view(kind, identifier, status, error):
             "status": status, "error": error, "optimization_accepted": False,
             "overview": {}, "conditions": {}, "metrics": [], "hotspots": [],
             "quality": [], "evidence": [], "facts": [], "hypotheses": [],
-            "growth": [], "comparisons": [], "limitations": [], "summary": {}, "observations": [], "call_edges": [], "allocation_sites": [], "phases": [], "phase_summaries": [], "runtime_identities": [], "sampling_profiles": [], "thread_timelines": [], "scheduler_timelines": [], "lifecycle":None, "candidate":None}
+            "growth": [], "comparisons": [], "limitations": [], "summary": {}, "observations": [], "call_edges": [], "allocation_sites": [], "phases": [], "phase_summaries": [], "runtime_identities": [], "sampling_profiles": [], "thread_timelines": [], "scheduler_timelines": [], "source_records": [], "lifecycle":None, "candidate":None}
+
+
+def source_record(run):
+    """Expose source failures without repeating raw samples or execution logs."""
+    error=run['error']
+    request=run['request']
+    def pick(source,fields):
+        return {key:source[key] for key in fields if key in source}
+    source=dict(run_id=run['run_id'],status=run['status'],
+                correctness_status=run['correctness']['status'],
+                error=None if error is None else {k:error[k] for k in ('category','message','exit_code')},
+                workload=pick(request['workload'],('id','parameters')),
+                tool=pick(run['tool'],('id','version','mode')) if 'tool' in run else None,
+                measurement=pick(request['measurement'],('tool','repetitions','warmups','cpu_affinity')),
+                build=pick(request['target']['build'],('revision','compiler','flags','mode')))
+    if 'execution_context' in run:
+        source['execution_context']=pick(run['execution_context'],('kind','scope','concurrent_runs','resource_conditions','status','overlap_fraction','overlap'))
+    return source
 
 
 def run_view(result):
     rid = result["run_id"]
     view = base_view("run", rid, result["status"], result["error"])
+    view['source_records']=[source_record(result)]
     request = result["request"]
     view['lifecycle']=None if 'lifecycle' not in result else dict(progress=result['lifecycle'])
     view["overview"] = {"name": request["name"], "workload": request["workload"],
@@ -41,6 +60,7 @@ def run_view(result):
     view["conditions"] = {"target": request["target"], "measurement": request["measurement"],
                           "environment": result["environment"], "identity": result.get("identity"),
                           "binary": result.get("binary"), "oracle": request["correctness"]}
+    if 'execution_context' in result:view['conditions']['execution_context']=result['execution_context']
     view["observations"] = run_observations(result)
     for section in ('call_edges','allocation_sites','phases','phase_summaries','runtime_identities','sampling_profiles','thread_timelines','scheduler_timelines'):
         view[section]=[{**row,'evidence_id':evidence_id(rid,row['evidence'])} for row in result.get(section,[])]
@@ -256,6 +276,8 @@ def build_view(store, identifier, kind="run"):
                 for section in ('metrics','phases','phase_summaries','hotspots','quality','observations','call_edges','allocation_sites','facts','hypotheses','runtime_identities','sampling_profiles','thread_timelines','scheduler_timelines'):
                     view[section].extend({**v,'run_id':rid,'case_id':case_id,'variant':member['variant'],**({'profile_id':member['profile_id']} if 'profile_id' in member else {})} for v in source[section])
             else:
+                view['observations'].extend({**row,'run_id':rid} for row in run_observations(run)
+                                            if row['evidence_state'] in ('Missing','Invalid','Unsupported'))
                 view['phase_summaries'].extend({**row,'run_id':rid,'evidence_id':evidence_id(rid,row['evidence'])} for row in run.get('phase_summaries',[]))
                 view['runtime_identities'].extend({**row,'run_id':rid,'evidence_id':evidence_id(rid,row['evidence'])} for row in run.get('runtime_identities',[]))
                 view['sampling_profiles'].extend({**row,'run_id':rid,'evidence_id':evidence_id(rid,row['evidence'])} for row in run.get('sampling_profiles',[]))
@@ -265,6 +287,7 @@ def build_view(store, identifier, kind="run"):
                                     for item in run.get("evidence", []))
         from .run_notes import notes
         view['conditions']['source_candidates']=[notes(store,r['run_id']) for r in runs]
+    view['source_records']=[source_record(run) for run in runs]
     view['summary'] = summarize_performance(runs, view['comparisons'], view['growth'])
     if kind=='study' and record['spec'].get('analysis')=='assessment':view['summary']['assessment']=record['assessment']
     return view
@@ -274,6 +297,7 @@ def summary_view(store, record):
     runs = [store.read(rid) for rid in record['run_ids']]
     comparisons = [store.read(cid, 'comparison') for cid in record['comparison_ids']]
     view = base_view('summary', record['summary_id'], record['status'], record['error'])
+    view['source_records']=[source_record(run) for run in runs]
     view['overview'] = {'runs': [{'run_id': r['run_id'], 'name': r['request']['name'],
                                  'status': r['status'], 'tool': r.get('tool')} for r in runs],
                         'comparison_ids': record['comparison_ids']}

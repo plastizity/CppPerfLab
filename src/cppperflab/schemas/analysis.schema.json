@@ -274,7 +274,9 @@
     },
     "scheduler_timelines": {
       "type": "array",
-      "items": {"type": "object"},
+      "items": {
+        "type": "object"
+      },
       "description": "Read-only OS context-switch timelines; detail is queried from archived interval JSONL."
     },
     "cpu_selection": {
@@ -303,6 +305,55 @@
       "type": "array",
       "items": {
         "type": "object"
+      }
+    },
+    "source_records": {
+      "type": "array",
+      "description": "Source Run status and failure references, without raw logs or samples.",
+      "items": {
+        "type": "object",
+        "required": [
+          "run_id",
+          "status",
+          "correctness_status",
+          "error"
+        ],
+        "properties": {
+          "run_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "correctness_status": {
+            "type": "string"
+          },
+          "error": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "workload": {
+            "type": "object"
+          },
+          "measurement": {
+            "type": "object"
+          },
+          "build": {
+            "type": "object"
+          },
+          "tool": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "execution_context": {
+            "type": "object"
+          }
+        },
+        "additionalProperties": false
       }
     }
   },

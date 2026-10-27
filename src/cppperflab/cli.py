@@ -116,8 +116,9 @@ def parser():
             q.add_argument("--offset", type=int, default=0)
             q.add_argument("--limit", type=int, default=20)
         if name == "report":
-            q.add_argument("--format", choices=("json", "text", "html"), default="json")
-            q.add_argument("--output", type=Path, help="required HTML export destination")
+            q.add_argument("--format", choices=("json", "text", "html", "agent", "both"), default="json")
+            q.add_argument("--output", type=Path, help="HTML/agent file, or directory for both reports")
+            q.add_argument("--limit", type=int, help="regular agent report detail limit (1..200, default 5)")
         if name == "compare":
             q.add_argument("baseline_id")
             q.add_argument("candidate_id")
@@ -145,7 +146,7 @@ def parser():
             q.add_argument("name")
             q.add_argument("run_id")
         if name == "schema":
-            q.add_argument("kind", choices=("request", "result", "envelope", "study", "analysis", "query", "tools", "summary", "metrics", "evidence", "policy", "solver", "solver-validation", "phases", "sample-manifest", "collection", "runtime-identity", "sampling", "run-status", "study-status", "activity-timeline", "phase-mapping", "phase-summary", "scheduler-timeline"))
+            q.add_argument("kind", choices=("request", "result", "envelope", "study", "analysis", "query", "tools", "summary", "metrics", "evidence", "policy", "solver", "solver-validation", "phases", "sample-manifest", "collection", "runtime-identity", "sampling", "run-status", "study-status", "activity-timeline", "phase-mapping", "phase-summary", "scheduler-timeline", "agent-report"))
     return p
 
 
@@ -174,7 +175,16 @@ def dispatch(args):
         action='candidate_state' if args.candidate_state is not None else 'superseded_by'
         value=args.candidate_state if action=='candidate_state' else args.superseded_by
         return annotate(store,args.run_id,action=action,value=value,reason=args.reason,expected_revision=args.expect_revision)
-    if args.command in ("report", "compare", "summarize", "profile", "timeline"):
+    if args.command == "report":
+        if args.format in ("html", "both") and args.output is None:
+            raise LabError("invalid_request", "HTML or both report export requires --output")
+        if args.format in ("json", "text") and args.output is not None:
+            raise LabError("invalid_request", "--output is supported for HTML, agent or both report export")
+        if args.limit is not None and args.format not in ("agent", "both"):
+            raise LabError("invalid_request", "--limit applies only to agent or both report format")
+        if args.limit is not None and not 1 <= args.limit <= 200:
+            raise LabError("invalid_request", "Agent report limit must be 1..200")
+    elif args.command in ("compare", "summarize", "profile", "timeline"):
         if args.format == "html" and args.output is None:
             raise LabError("invalid_request", "HTML export requires --output")
         if args.format != "html" and args.output is not None:
@@ -277,6 +287,16 @@ def dispatch(args):
     if args.command == "report":
         if args.format == "html":
             return export_html(build_view(store, args.run_id, args.kind), store, args.output)
+        if args.format in ("agent", "both"):
+            from .agent_report import build_agent_report
+            view = build_view(store, args.run_id, args.kind)
+            limit = args.limit if args.limit is not None else 5
+            if args.format == "agent" and args.output is None:
+                return build_agent_report(view, store.root, limit=limit)
+            from .reporting import export_agent, export_both
+            if args.format == "agent":
+                return export_agent(view, store, args.output, limit=limit)
+            return export_both(view, store, args.output, limit=limit)
         return store.read(args.run_id, args.kind)
     if args.command == 'summarize':
         view = create_summary(store, args.run, args.comparison)
@@ -368,7 +388,7 @@ def main():
         failure = LabError("internal_error", str(error))
         exit_code = 70
         envelope = {"schema_version": 1, "ok": False, "result": None, "error": failure.as_dict()}
-    if args.json or (args.command == "report" and args.format == "json"):
+    if args.json or (args.command == "report" and args.format in ("json", "agent")):
         print(json.dumps(envelope, indent=2, sort_keys=True, allow_nan=False))
     else:
         print("CppPerfLab " + ("OK" if envelope["ok"] else "FAILED"))
