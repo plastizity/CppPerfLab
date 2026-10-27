@@ -64,6 +64,24 @@ class RuntimeIdentityTests(unittest.TestCase):
             raw=json.loads((root/report['snapshots'][0]['path']).read_text())
             self.assertTrue(any('maps_b64' in p['raw'] for p in raw['processes']))
             self.assertTrue(any(base64.b64decode(p['raw'].get('maps_b64','')) for p in raw['processes']))
+            target=next(p for p in report['actual_executables'] if p['target_match'])
+            threads=target['thread_observation']
+            self.assertEqual(threads['evidence_state'],'Measured')
+            self.assertGreater(threads['max_observed_count'],0)
+            self.assertTrue(threads['observations'])
+            self.assertTrue(all(o['allowed_cpus'] and o['observed_snapshots']>0 for o in threads['observations']))
+            self.assertTrue(any('tasks' in p['raw'] for p in raw['processes'] if p.get('target_match')))
+
+    def test_affinity_permission_is_explicit_without_failing_identity_acceptance(self):
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch('cppperflab.runtime_identity.os.sched_getaffinity',side_effect=PermissionError('controlled affinity denial')):
+                self.observe_python(Path(d))
+            report=json.loads((Path(d)/'runtime-identity.json').read_text())
+            target=next(p for p in report['actual_executables'] if p['target_match'])
+            threads=target['thread_observation']
+            self.assertEqual(threads['evidence_state'],'Measured')
+            self.assertTrue(any(i['evidence_state']=='Unsupported' and 'controlled affinity denial' in i['reason'] for i in threads['issues']))
+            self.assertEqual(report['acceptance']['status'],'NOT_REQUESTED')
 
     def test_expected_actual_executor_passes_wrong_hash_fails_and_missing_is_not_pass(self):
         exe=str(Path(sys.executable).resolve())

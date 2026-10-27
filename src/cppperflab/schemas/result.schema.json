@@ -24,6 +24,33 @@
       "type": "string",
       "minLength": 1
     },
+    "execution_context": {
+      "type": "object",
+      "properties": {
+        "kind": {"enum": ["concurrent_ab", "serial"]},
+        "concurrent_runs": {"const": 2},
+        "competition_pair_identity": {
+          "type": "object",
+          "properties": {
+            "baseline": {"type": "object"},
+            "candidate": {"type": "object"}
+          },
+          "required": ["baseline", "candidate"],
+          "additionalProperties": false
+        },
+        "resource_conditions": {"type": "object"},
+        "scope": {"type": "string", "minLength": 1},
+        "status": {"const": "PASS"},
+        "overlap_fraction": {"type": "number", "minimum": 0, "maximum": 1},
+        "overlap": {"type": "object"}
+      },
+      "required": ["kind"],
+      "allOf": [{
+        "if": {"properties": {"kind": {"const": "concurrent_ab"}}, "required": ["kind"]},
+        "then": {"required": ["concurrent_runs", "competition_pair_identity", "resource_conditions"]}
+      }],
+      "additionalProperties": true
+    },
     "workflow_cost": {
       "type": "object",
       "properties": {

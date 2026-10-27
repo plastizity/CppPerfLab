@@ -86,6 +86,32 @@ class StudyStatusTests(unittest.TestCase):
         self.assertEqual(result["progress"]["failed_runs"], 1)
         self.assertEqual(result["progress"]["completed_runs"], 0)
 
+    def test_concurrent_active_children_report_each_chain_and_common_prefix(self):
+        first = self.make_run("running", samples=0)
+        second = self.make_run("running", samples=0)
+        identifier = self.study(lifecycle=dict(schema_version=1,
+            owner={"pid": 99999999, "evidence_state": "Missing", "reason": "test"}, planned_runs=2,
+            children=[dict(record_kind="run", record_id=first, context={"slot": 0}, created_at=utc()),
+                      dict(record_kind="run", record_id=second, context={"slot": 1}, created_at=utc())],
+            active_children=[0, 1], active_child=None))
+        result = study_status(self.store, identifier)
+        self.assertEqual([[entry["record_id"] for entry in path] for path in result["active_paths"]],
+            [[identifier, first], [identifier, second]])
+        self.assertEqual(result["active_path"], [])
+
+    def test_legacy_single_active_child_and_inconsistent_new_pointer(self):
+        run_id = self.make_run("running", samples=0)
+        identifier = self.study(lifecycle=dict(schema_version=1,
+            owner={"pid": 99999999, "evidence_state": "Missing", "reason": "test"}, planned_runs=1,
+            children=[dict(record_kind="run", record_id=run_id, context={}, created_at=utc())], active_child=0))
+        self.assertEqual(len(study_status(self.store, identifier)["active_paths"]), 1)
+        malformed = self.study(lifecycle=dict(schema_version=1,
+            owner={"pid": 99999999, "evidence_state": "Missing", "reason": "test"}, planned_runs=1,
+            children=[dict(record_kind="run", record_id=run_id, context={}, created_at=utc())],
+            active_children=[0], active_child=None))
+        with self.assertRaises(LabError):
+            study_status(self.store, malformed)
+
     def test_running_study_with_recorded_owner_that_exited_is_not_reported_live(self):
         owner = process_identity(os.getpid())
         owner["pid"] = 99999999

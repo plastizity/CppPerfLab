@@ -139,6 +139,7 @@ def comparison_view(result):
     view["overview"]["normalized_cost"] = result["normalized_cost"]
     view["conditions"] = {"policy": result["policy"], "treatment": result["treatment"],
                           "acceptance_policy":result.get("acceptance_policy")}
+    if 'execution_context' in result:view['conditions']['execution_context']=result['execution_context']
     view["comparisons"] = [result]
     view["facts"] = [{"kind": "statistical_inference", "comparison": result}]
     view["quality"] = [{"code": result["classification"],
@@ -177,7 +178,10 @@ def study_view(result):
         view['conditions']={'spec':spec,'execution_budget':result['execution_budget'],'resource_isolation_enforced':False}
         view['comparisons']=result['comparisons']
         view['facts']=[{'kind':'observation','block':b} for b in result['blocks']]
-        view['quality']=[{'code':'paired_design','severity':'review','message':'Serial paired/block design; resource isolation is not enforced and block independence is not proved.'}]
+        view['quality']=[{'code':'paired_design','severity':'review','message':
+            ('Concurrent competing-pair measurements; waves and blocks are serial. '
+             if spec['resource_conditions']['concurrent_runs']==2 else 'Serial paired/block design. ')+
+            'Resource isolation is not enforced and block independence is not proved.'}]
         view['limitations']=result['execution_budget']['limitations']
         view['summary']=summarize_performance([],view['comparisons'])
         return view

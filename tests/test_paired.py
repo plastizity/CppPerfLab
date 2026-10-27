@@ -102,10 +102,16 @@ class PairedTests(unittest.TestCase):
             self.assertEqual(budget['run_calls'],12)
             self.assertEqual(budget['variants']['baseline']['run_calls'],6)
             self.assertFalse(budget['execution_performed'])
-            for issue in ('budget','concurrent','repetitions','auto','unknown','workload','null_scope','tool'):
+            s=spec();s['resource_conditions'].update(concurrent_runs=2,synchronization_timeout_seconds=5,
+                minimum_overlap_fraction=.75,threads_per_variant={'baseline':1,'candidate':2})
+            write_json(path,s)
+            concurrent,concurrent_requests=load_study(path)
+            self.assertEqual(concurrent['resource_conditions']['concurrent_runs'],2)
+            self.assertEqual(paired_budget(concurrent,concurrent_requests)['run_calls'],12)
+            for issue in ('budget','concurrent_fields','repetitions','auto','unknown','workload','null_scope','tool'):
                 self.make_config(root);s=spec()
                 if issue=='budget':s['budget']=11
-                if issue=='concurrent':s['resource_conditions']['concurrent_runs']=2
+                if issue=='concurrent_fields':s['resource_conditions']['concurrent_runs']=2
                 if issue=='unknown':s['extra']=0
                 if issue=='null_scope':s['metric_scope']=None
                 if issue=='tool':

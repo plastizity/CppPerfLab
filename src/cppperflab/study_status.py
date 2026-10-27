@@ -28,7 +28,7 @@ def study_status(store, identifier, verify_artifacts=False):
             _validate_status(result, "Study", malformed)
             lifecycle = result.get("lifecycle")
             if lifecycle is not None:
-                required = {"schema_version", "owner", "updated_at", "planned_runs", "children", "active_child"}
+                required = {"schema_version", "owner", "updated_at", "planned_runs", "children"}
                 if type(lifecycle) is not dict or not required.issubset(lifecycle) or type(lifecycle.get("schema_version")) is not int or lifecycle["schema_version"] != 1:
                     malformed("Unsupported or malformed Study lifecycle")
                 children = lifecycle.get("children")
@@ -43,9 +43,22 @@ def study_status(store, identifier, verify_artifacts=False):
                             or type(edge.get("record_id")) is not str or not edge["record_id"]
                             or type(edge.get("context")) is not dict or type(edge.get("created_at")) is not str):
                         malformed("Malformed Study lifecycle child")
-                active = lifecycle.get("active_child")
-                if active is not None and (type(active) is not int or active < 0 or active >= len(children)):
-                    malformed("Study lifecycle active_child is outside children")
+                if "active_children" in lifecycle:
+                    active_children = lifecycle["active_children"]
+                    if (type(active_children) is not list or any(type(i) is not int or i < 0 or i >= len(children) for i in active_children)
+                            or len(set(active_children)) != len(active_children)):
+                        malformed("Study lifecycle active_children must contain distinct child indexes")
+                    active = lifecycle.get("active_child")
+                    expected = active_children[0] if len(active_children) == 1 else None
+                    if active != expected:
+                        malformed("Study lifecycle active_child does not match active_children")
+                else:
+                    if "active_child" not in lifecycle:
+                        malformed("Legacy Study lifecycle active_child is required")
+                    active = lifecycle.get("active_child")
+                    if active is not None and (type(active) is not int or active < 0 or active >= len(children)):
+                        malformed("Study lifecycle active_child is outside children")
+                    active_children = [] if active is None else [active]
                 owner = lifecycle.get("owner")
                 if (type(owner) is not dict or type(owner.get("pid")) is not int or
                         owner.get("evidence_state") not in ("Measured", "Missing", "Unsupported") or
@@ -101,13 +114,14 @@ def study_status(store, identifier, verify_artifacts=False):
     root_status = root["status"]
     root_owner = _study_owner(root.get("lifecycle"))
     counts = _counts(root, runs)
-    active_path = _active_path(identifier, study_results, study_edges, run_views)
+    active_paths = _active_paths(identifier, study_results, study_edges, run_views)
+    active_path = _common_prefix(active_paths)
     return dict(schema_version=1, record_kind="study", study_id=identifier,
         study_status=root_status, source_error=root.get("error"), error=None,
         name=root.get("name", root.get("spec", {}).get("name")),
         started_at=root.get("started_at"), ended_at=root.get("ended_at"), observed_at=utc(),
         owner=root_owner, observed_state=_observed_state(root_status, root_owner), progress=counts,
-        active_path=active_path, studies=studies, runs=runs,
+        active_path=active_path, active_paths=active_paths, studies=studies, runs=runs,
         eta=dict(evidence_state="Missing", total_remaining_seconds=None,
             reason="无足够可比的未来完整工作量成本，不猜StudyETA"),
         limitations=["Legacy studies have no live child pointer; only persisted child links are reported.",
@@ -183,25 +197,40 @@ def _counts(root, runs):
         normalized_samples=sum(run["normalized_samples"] for run in runs))
 
 
-def _active_path(root_id, study_results, study_edges, run_views):
-    path = []
-    current_id = root_id
-    while True:
-        result = study_results[current_id]
-        if result.get("status") != "running" or result.get("lifecycle") is None:
+def _active_paths(root_id, study_results, study_edges, run_views):
+    def descend(study_id, prefix):
+        result = study_results[study_id]
+        lifecycle = result.get("lifecycle")
+        if result.get("status") != "running" or lifecycle is None:
+            return []
+        paths = []
+        indexes = lifecycle.get("active_children")
+        if indexes is None:
+            index = lifecycle.get("active_child")
+            indexes = [] if index is None else [index]
+        for index in indexes:
+            edge = study_edges[study_id][index]
+            path = prefix + [dict(record_kind="study", record_id=study_id,
+                context=edge["context"], status="running")]
+            if edge["record_kind"] == "study":
+                nested = descend(edge["record_id"], path)
+                paths.extend(nested if nested else [path])
+            else:
+                status = run_views[edge["record_id"]]
+                path.append(dict(record_kind="run", record_id=edge["record_id"], context=edge["context"],
+                    status=status["run_status"], observed_state=status["observed_state"]))
+                paths.append(path)
+        return paths
+    return descend(root_id, [])
+
+
+def _common_prefix(paths):
+    if not paths:
+        return []
+    prefix = []
+    for entries in zip(*paths):
+        if all(entry == entries[0] for entry in entries[1:]):
+            prefix.append(entries[0])
+        else:
             break
-        lifecycle = result["lifecycle"]
-        index = lifecycle["active_child"]
-        if index is None:
-            break
-        edge = study_edges[current_id][index]
-        entry = dict(record_kind="study", record_id=current_id, context=edge["context"], status="running")
-        path.append(entry)
-        if edge["record_kind"] == "study":
-            current_id = edge["record_id"]
-            continue
-        status = run_views[edge["record_id"]]
-        path.append(dict(record_kind="run", record_id=edge["record_id"], context=edge["context"],
-            status=status["run_status"], observed_state=status["observed_state"]))
-        break
-    return path
+    return prefix

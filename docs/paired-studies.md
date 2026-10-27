@@ -9,7 +9,9 @@ Study 的 `analysis: "paired"` 扩展现有运行矩阵，不另建执行器或�
 ```bash
 # 仅显式构建本仓库合成目标；不构建使用方工程。
 cmake --build build/profile --target phase_text
+cmake --build build/profile --target thread_activity
 python3.11 scripts/make_phase_example.py
+python3.11 scripts/make_thread_activity_example.py
 python3.11 scripts/make_paired_examples.py
 bash scripts/install.sh
 source scripts/env.sh
@@ -69,9 +71,12 @@ perflab report STUDY_ID --kind study --format html --output results/paired.html 
   可比性声明检查在执行前拒绝明显不一致；原始测量的环境、事件、scope、
   覆盖率、证据和正确性仍通过同一 Comparison 检查。
 
-`resource_conditions` 是调用方声明。平台保证本 Study 的启动顺序串行，但不保证
-没有第三方负载、强制独占 CPU 或消除温度/缓存漂移。同步竞争双跑目前不支持，
-concurrent_runs 不是 1 时拒绝，不把竞争场景暗中当作串行独立实验。
+`resource_conditions` 是调用方声明。串行设计按平台顺序启动，但不保证没有第三方负载、
+强制独占 CPU 或消除温度/缓存漂移。显式配置 `concurrent_runs: 2` 时，平台会在每个
+区块内同步竞争双跑；这类结果描述竞争中的这一对程序，不估计隔离后的串行加速。其
+同步门、重叠证据和限制见[并发配对说明](concurrent-paired.md)。
+`make_paired_examples.py` 还生成 `workloads/paired-thread-activity.concurrent.study.json`
+及两份同源请求，作为两线程合成目标的接口控制；它不声称速度提升。
 
 ## 来源、停止与版本固定
 

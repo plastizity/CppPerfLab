@@ -56,10 +56,33 @@ class StudyProgress:
         self.enabled=any(r['measurement'].get('progress',False) for r in requests)
         if self.enabled:
             result['lifecycle']=dict(schema_version=1,owner=process_identity(os.getpid()),updated_at=utc(),
-                planned_runs=planned_runs,children=[],active_child=None)
+                planned_runs=planned_runs,children=[],active_children=[],active_child=None)
+
+    def register_child(self,kind,identifier,context):
+        """Persist a child edge and mark it active; called by the parent writer."""
+        if not self.enabled:return None
+        state=self.result['lifecycle']
+        state['children'].append(dict(record_kind=kind,record_id=identifier,context=context,created_at=utc()))
+        index=len(state['children'])-1
+        state['active_children'].append(index)
+        state['active_child']=state['active_children'][0] if len(state['active_children'])==1 else None
+        self.save()
+        return index
+
+    def finish_child(self,index):
+        """Clear a child from the active set while retaining its persisted edge."""
+        if not self.enabled:return None
+        state=self.result['lifecycle']
+        state['active_children'].remove(index)
+        state['active_child']=state['active_children'][0] if len(state['active_children'])==1 else None
+        self.save()
 
     def save(self):
         self.result['lifecycle']['updated_at']=utc();write_json(self.path,self.result)
+
+    @property
+    def data(self):
+        return self.result['lifecycle']
 
     @contextmanager
     def delegate(self,kind,context):
@@ -67,20 +90,19 @@ class StudyProgress:
         def register(actual,identifier):
             nonlocal created
             if created or actual!=kind:raise LabError('internal_error','Study delegation published an unexpected child record')
-            created=True;state=self.result['lifecycle']
-            state['children'].append(dict(record_kind=kind,record_id=identifier,context=context,created_at=utc()))
-            state['active_child']=len(state['children'])-1;self.save()
+            created=True;index_holder.append(self.register_child(kind,identifier,context))
+        index_holder=[]
         token=_record_created.set(register if self.enabled else None)
         try:
             yield
             if self.enabled and not created:raise LabError('internal_error','Study delegation did not publish its child record')
         finally:
             _record_created.reset(token)
-            if self.enabled:
-                self.result['lifecycle']['active_child']=None;self.save()
+            if self.enabled and index_holder:self.finish_child(index_holder[0])
 
     def terminal(self):
         if self.enabled:
+            self.result['lifecycle']['active_children']=[]
             self.result['lifecycle']['active_child']=None;self.result['lifecycle']['updated_at']=utc()
 
 

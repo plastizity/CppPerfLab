@@ -217,7 +217,10 @@
           "type": "object",
           "properties": {
             "concurrent_runs": {
-              "const": 1
+              "enum": [
+                1,
+                2
+              ]
             },
             "background_load": {
               "enum": [
@@ -227,8 +230,89 @@
             },
             "notes": {
               "type": "string"
+            },
+            "synchronization_timeout_seconds": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "minimum_overlap_fraction": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1
+            },
+            "threads_per_variant": {
+              "type": "object",
+              "properties": {
+                "baseline": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "candidate": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "required": [
+                "baseline",
+                "candidate"
+              ],
+              "additionalProperties": false
             }
           },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "concurrent_runs": {
+                    "const": 1
+                  }
+                },
+                "required": [
+                  "concurrent_runs"
+                ]
+              },
+              "then": {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "synchronization_timeout_seconds"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "minimum_overlap_fraction"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "threads_per_variant"
+                      ]
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "concurrent_runs": {
+                    "const": 2
+                  }
+                },
+                "required": [
+                  "concurrent_runs"
+                ]
+              },
+              "then": {
+                "required": [
+                  "synchronization_timeout_seconds",
+                  "minimum_overlap_fraction",
+                  "threads_per_variant"
+                ]
+              }
+            }
+          ],
           "required": [
             "concurrent_runs",
             "background_load",

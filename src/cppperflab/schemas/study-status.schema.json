@@ -67,6 +67,13 @@
         "$ref": "#/$defs/activePathEntry"
       }
     },
+    "active_paths": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": {"$ref": "#/$defs/activePathEntry"}
+      }
+    },
     "studies": {
       "type": "array",
       "items": {

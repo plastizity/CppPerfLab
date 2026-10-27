@@ -30,6 +30,8 @@ def _canonical(value):
 
 def cost_key(result, implementation_sha256):
     """Return a stable SHA-256 key for runs whose selected tool identity is known."""
+    if (result.get('execution_context') or {}).get('kind')=='concurrent_ab':
+        return None
     tool = result["tool"]
     if (tool.get("version") in (None, "unknown-until-collection") or
             not tool.get("executable_path") or not tool.get("executable_sha256")):

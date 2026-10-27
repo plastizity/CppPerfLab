@@ -115,6 +115,30 @@ def validated_samples(a, b, metric_name="time.wall", allow_command_change=False,
         if left != right:
             differences.append({"condition": label, "baseline": left, "candidate": right})
 
+    def execution_context(run):
+        context=run.get('execution_context')
+        if context is None:
+            return {'kind':'serial'}
+        if not isinstance(context,dict):
+            raise LabError('incomparable','Run execution context is malformed')
+        kind=context.get('kind')
+        if kind=='serial':
+            return {'kind':'serial'}
+        if kind!='concurrent_ab':
+            raise LabError('incomparable','Run execution context has an unknown kind')
+        conditions=context.get('resource_conditions')
+        overlap=context.get('overlap_fraction')
+        if (context.get('concurrent_runs')!=2 or not isinstance(conditions,dict) or
+                type(conditions.get('minimum_overlap_fraction')) not in (int,float) or
+                not math.isfinite(conditions['minimum_overlap_fraction']) or
+                not 0 < conditions['minimum_overlap_fraction'] <= 1 or
+                context.get('status')!='PASS' or type(overlap) not in (int,float) or
+                not math.isfinite(overlap) or not conditions['minimum_overlap_fraction'] <= overlap <= 1):
+            raise LabError('incomparable','Concurrent run lacks a passing, sufficient overlap gate',
+                           {'acceptance':{'status':'INCONCLUSIVE','reason':'concurrent overlap evidence missing or insufficient'}})
+        return {key:context.get(key) for key in ('kind','concurrent_runs','competition_pair_identity','resource_conditions')}
+    same('execution_context',execution_context(a),execution_context(b))
+
     same("completed", a["status"], "completed")
     same("candidate_completed", b["status"], "completed")
     if a["status"] != "completed" or b["status"] != "completed":
@@ -230,6 +254,11 @@ def summarize_comparison(a,b,metric_name,unit,av,bv,policy,allow_command_change=
     result['input_evidence_state'] = 'Measured'
     result['correctness_status'] = 'passed'
     result['ratio_semantics'] = 'baseline / candidate; not a runtime speedup unless a time metric'
+    context=a.get('execution_context')
+    if context is not None and context['kind']=='concurrent_ab':
+        result['execution_context']={key:context[key] for key in ('kind','concurrent_runs','competition_pair_identity','resource_conditions')}
+        result['execution_context']['scope']='competing pair'
+        result['ratio_semantics']='baseline / candidate under concurrent competition; not isolated serial speedup'
     result['runtime_reduction'] = 1-bm/am if metric_name.startswith('time.') else None
     result['regression_status'] = result['acceptance']['status']
     result['normalized_cost'] = normalized_cost(result)

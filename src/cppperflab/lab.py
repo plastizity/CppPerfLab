@@ -190,13 +190,14 @@ def archive_scheduler_profile(result,profile,folder,directory,stage,group):
         evidence=str(prefix/'scheduler-profile.json')))
 
 
-def run(request, store):
+def run(request, store, *, measurement_hook=None):
     workflow_started=time.monotonic_ns()
     identifier, directory = store.create()
     result = {"schema_version": 1, "run_id": identifier, "status": "running", "started_at": utc(),
               "request": request, "environment": discover(), "samples": [], "hotspots": [],
               "summary": [], "correctness": {"status": "not_run"}, "error": None,
               "evidence_directory": str(directory)}
+    if measurement_hook is not None:result['execution_context']=measurement_hook.context
     from .lifecycle import RunProgress,start_workflow_cost,implementation_identity
     result['workflow_cost']=start_workflow_cost(workflow_started,request['measurement'].get('progress',False))
     progress=RunProgress(result,directory) if request['measurement'].get('progress',False) else None
@@ -235,6 +236,8 @@ def run(request, store):
         result["identity"] = fingerprints(request, directory)
         from .workflow_eta import cost_key
         result['workflow_cost']['cost_key']=cost_key(result,result['workflow_cost']['implementation_sha256'])
+        if measurement_hook is not None:
+            result['workflow_cost']['reason']='Concurrent coordination waiting is not modeled by the serial workflow ETA'
         if progress:progress.save('fingerprinting')
         else:write_json(directory/'result.json',result)
         if any(result['identity']['inputs'][path]!=expected for path,expected in request['workload'].get('expected_hashes',{}).items()):
@@ -253,6 +256,14 @@ def run(request, store):
             if progress:
                 progress.save(execution_stage)
                 progress_options['on_start']=lambda pid:progress.starting(execution_stage,measurement_group,command,folder,pid)
+            if measurement_hook is not None and execution_stage=='measurement':
+                measurement_hook.ready(identifier,measurement_group,folder)
+                progress_start=progress_options.get('on_start')
+                def paired_start(pid):
+                    measurement_hook.started(pid,time.monotonic_ns())
+                    if progress_start is not None:progress_start(pid)
+                progress_options['on_start']=paired_start
+                progress_options['on_exit']=measurement_hook.finished
             record = execute(command, folder, **identity_options, **progress_options,cwd=target.get("cwd", str(folder)),
                              env=target["environment"], timeout=config["timeout_seconds"],
                              affinity=config.get("cpu_affinity"), limits=config.get("limits"))
@@ -267,6 +278,12 @@ def run(request, store):
                     if 'snapshot' in error:error['snapshot']=str(prefix/error['snapshot'])
                 for obj in identity['objects']+identity['actual_executables']:
                     for key in ('first_snapshot','last_snapshot'):obj[key]=str(prefix/obj[key])
+                    if 'thread_observation' in obj:
+                        threads=obj['thread_observation']
+                        for row in [threads,*threads['observations']]:
+                            for key in ('first_snapshot','last_snapshot'):
+                                if row.get(key) is not None:row[key]=str(prefix/row[key])
+                        for issue in threads['issues']:issue['snapshot']=str(prefix/issue['snapshot'])
                 result.setdefault('runtime_identities',[]).append(identity)
             check_execution(record)
             if record["returncode"] and not tool:

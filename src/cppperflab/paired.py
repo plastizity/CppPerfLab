@@ -30,10 +30,20 @@ def load_paired(spec, base):
     require('metric_scope' not in spec or isinstance(spec['metric_scope'],str) and bool(spec['metric_scope']),'Invalid metric_scope')
     spec['policy']=validate_policy(spec['policy'])
     conditions=spec['resource_conditions']
-    fields(conditions,('concurrent_runs','background_load','notes'),('concurrent_runs','background_load','notes'),'resource conditions')
-    require(type(conditions['concurrent_runs']) is int and conditions['concurrent_runs']==1,'This design supports serial paired runs only; concurrent competition is a different experiment')
+    concurrent_fields=('concurrent_runs','background_load','notes','synchronization_timeout_seconds','minimum_overlap_fraction','threads_per_variant')
+    fields(conditions,concurrent_fields,('concurrent_runs','background_load','notes'),'resource conditions')
+    require(type(conditions['concurrent_runs']) is int and conditions['concurrent_runs'] in (1,2),'concurrent_runs must be 1 or 2')
     require(conditions['background_load'] in ('uncontrolled','caller_controlled'),'Invalid background load declaration')
     require(isinstance(conditions['notes'],str),'Resource notes must be text')
+    if conditions['concurrent_runs']==2:
+        positive(conditions.get('synchronization_timeout_seconds'),'synchronization_timeout_seconds')
+        fraction=conditions.get('minimum_overlap_fraction')
+        require(type(fraction) in (int,float) and 0 < fraction <= 1,'minimum_overlap_fraction must be in (0,1]')
+        threads=conditions.get('threads_per_variant')
+        fields(threads,('baseline','candidate'),('baseline','candidate'),'threads_per_variant')
+        for count in threads.values():positive(count,'threads_per_variant',integer=True)
+    else:
+        require(not any(k in conditions for k in concurrent_fields[3:]),'Concurrent synchronization fields require concurrent_runs=2')
     descriptors=[{'metric':spec['metric'],'metric_scope':spec.get('metric_scope'),'policy':spec['policy']}]
     require(isinstance(spec.get('secondary_metrics',[]),list),'secondary_metrics must be an array')
     for descriptor in spec.get('secondary_metrics',[]):
@@ -55,6 +65,9 @@ def validate_pair_conditions(spec,requests):
     for request in requests.values():
         require(request['measurement']['repetitions']==1,'Each paired member must request exactly one observation; repeated ABBA members are not independent blocks')
         require(request['measurement']['tool']!='auto','Paired studies require explicitly selected tools; plan each request first')
+    if spec['resource_conditions']['concurrent_runs']==2:
+        from .adapters import REGISTRY
+        require(all(not REGISTRY[r['measurement']['tool']].batch for r in requests.values()),'Concurrent pairs require non-batch external tools')
     differences=request_differences(requests['baseline'],requests['candidate'],spec.get('allow_command_change',False))
     if differences:raise LabError('incomparable','Declared paired conditions differ before execution',{'differences':differences})
     require(requests['baseline']['measurement']['tool']==requests['candidate']['measurement']['tool'],'Paired variants require the same explicit adapter')
@@ -78,13 +91,15 @@ def paired_budget(spec, requests):
             'estimated_runtime_seconds':None,
             'limitations':['Each member reuses the full run lifecycle, including oracle, preflight and configured warmups. No hidden reuse or retries.',
                            'Counts multiply by run_calls for each variant; adaptive/opaque work remains unknown.',
+                           'Preparation is serial; measurements overlap within each wave, and waves/blocks remain serial.'
+                           if spec['resource_conditions']['concurrent_runs']==2 else
                            'Serial order controls platform launches, not unrelated background processes.']}
 
 
 def compare_blocks(blocks, metric_name, policy, metric_scope=None, allow_command_change=False):
     """Validate all raw members before reducing ABBA to one point per variant/block."""
     require(bool(blocks),'No blocks to compare')
-    references={};ids=set();pairs=[];unit=None
+    references={};ids=set();pairs=[];unit=None;execution_kind=None;shared_context=None
     for block in blocks:
         require(block['status']=='completed','Incomplete/failed blocks cannot be omitted or scored')
         require(block['order'] in ('AB','BA','ABBA'),'Unknown block order')
@@ -94,6 +109,12 @@ def compare_blocks(blocks, metric_name, policy, metric_scope=None, allow_command
             variant='baseline' if letter=='A' else 'candidate'
             require(member['variant']==variant and member['slot']==slot,'Ledger order does not match the preregistered block')
             measured=member['run']
+            context=measured.get('execution_context') or {'kind':'serial'}
+            kind=context.get('kind')
+            require(kind in ('serial','concurrent_ab'),'Unknown paired execution context')
+            normalized={k:context.get(k) for k in ('kind','concurrent_runs','competition_pair_identity','resource_conditions')}
+            if execution_kind is None:execution_kind=kind;shared_context=normalized
+            require(kind==execution_kind and normalized==shared_context,'Serial and concurrent members or differing concurrent conditions cannot be mixed')
             require(measured['run_id'] not in ids,'A measured run cannot be reused as multiple paired observations')
             ids.add(measured['run_id'])
             require(len(measured['samples'])==1,'One native observation per paired member required')
@@ -123,6 +144,14 @@ def compare_blocks(blocks, metric_name, policy, metric_scope=None, allow_command
     result['limitations'].extend(['ABBA contributes one block observation, not two independent pairs.',
                                   'Marginal CVs describe drift/noise; the paired stability gate uses block-ratio CV.',
                                   'No claim of independent blocks, removal of background interference or causality follows from pairing.'])
+    if execution_kind=='concurrent_ab':
+        result['execution_context']={'kind':'concurrent_ab','concurrent_runs':2,
+                                     'competition_pair_identity':shared_context['competition_pair_identity'],
+                                     'resource_conditions':shared_context['resource_conditions'],
+                                     'scope':'competing pair'}
+        result['limitations'].append('Concurrent A/B results describe this competing pair and do not estimate isolated serial speedup.')
+    else:
+        result['execution_context']={'kind':'serial','scope':'serial paired study'}
     return result
 
 
@@ -143,6 +172,57 @@ def run_paired(spec, requests, store):
             expected[variant]=fingerprints(request,path)
         for block in result['blocks']:
             block['status']='running';native=[]
+            if spec['resource_conditions']['concurrent_runs']==2:
+                from .concurrent import run_wave
+                wave_orders=[block['order'][:2],block['order'][2:]] if block['order']=='ABBA' else [block['order']]
+                for wave_index,wave_order in enumerate(wave_orders):
+                    wave_id=block['block_id']+'-wave-%02d'%wave_index
+                    members=[]
+                    for slot_offset,letter in enumerate(wave_order):
+                        slot=slot_offset if block['order']!='ABBA' else wave_index*2+slot_offset
+                        variant='baseline' if letter=='A' else 'candidate'
+                        request=copy.deepcopy(requests[variant])
+                        request['name']=spec['name']+'/'+block['block_id']+'/'+str(slot)+'/'+variant
+                        require(identity_snapshot(request)==expected[variant],'Inputs or artifacts changed before paired member launch')
+                        members.append({'slot':slot,'variant':variant,'request':request})
+                    wave_context={'kind':'concurrent_ab','study_id':identifier,'block_id':block['block_id'],'wave_id':wave_id,
+                        'concurrent_runs':2,'competition_pair_identity':expected,
+                        'resource_conditions':spec['resource_conditions']}
+                    created=[]
+                    def child_created(slot,variant,run_id):
+                        child={'block_id':block['block_id'],'slot':slot,'variant':variant,'run_id':run_id,
+                               'status':'running','wave_id':wave_id}
+                        result['runs'].append(child);block['members'].append(child)
+                        index=progress.register_child('run',run_id,{'block_id':block['block_id'],'wave_id':wave_id,'slot':slot,'variant':variant})
+                        created.append((child,index))
+                        write_json(directory/'study.json',result)
+                    try:
+                        measured_runs,wave=run_wave(members,store,directory/'waves'/wave_id,wave_context,child_created)
+                    except LabError as error:
+                        wave=error.details.get('wave',{})
+                        for child,index in created:
+                            measured=store.read(child['run_id'])
+                            child.update(status=measured['status'],started_at=measured['started_at'],ended_at=measured['ended_at'],wave_id=wave_id,wave=wave)
+                            if index is not None:progress.finish_child(index)
+                        write_json(directory/'study.json',result)
+                        raise
+                    by_id={record['run_id']:record for record in measured_runs}
+                    for child,index in created:
+                        measured=by_id[child['run_id']]
+                        child.update(status=measured['status'],started_at=measured['started_at'],ended_at=measured['ended_at'],wave_id=wave_id,wave=wave)
+                        if index is not None:progress.finish_child(index)
+                    for item in members:
+                        slot=item['slot'];variant=item['variant'];measured=by_id[next(c['run_id'] for c,_ in created if c['slot']==slot)]
+                        if measured['status']!='completed':
+                            block['status']='cancelled' if measured['status']=='cancelled' else 'failed'
+                            raise LabError(measured['error']['category'],
+                                'Concurrent paired member failed; no block was dropped or retried',{'member':next(c for c,_ in created if c['slot']==slot),'wave':wave})
+                        require(measured['identity']==expected[variant],'Inputs or artifacts changed since paired study registration')
+                        native.append({**next(c for c,_ in created if c['slot']==slot),'run':measured})
+                    write_json(directory/'study.json',result)
+                block['status']='completed';completed.append({**block,'members':native})
+                write_json(directory/'study.json',result)
+                continue
             for slot,letter in enumerate(block['order']):
                 variant='baseline' if letter=='A' else 'candidate'
                 result['active_member']={'block_id':block['block_id'],'slot':slot,'variant':variant}

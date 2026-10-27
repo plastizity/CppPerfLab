@@ -214,6 +214,11 @@ def lifecycle_section(view):
                 ('unverified_running_records','存活未核实的记录'),('normalized_samples','已保存测量样本')]
         body+=table(['进度口径','数量'],[[esc(label),esc(progress[key])] for key,label in labels])
         body+=table(['执行链','记录 ID','已保存状态'],[[esc(row['record_kind']),esc(row['record_id']),esc(row['status'])] for row in current['active_path']])
+        if len(current.get('active_paths', [])) > 1:
+            body+='<h4>并行活动执行链</h4>'
+            for index,path in enumerate(current['active_paths'],1):
+                body+='<p>活动链 '+esc(index)+'</p>'+table(['记录','记录 ID','已保存状态'],[
+                    [esc(row['record_kind']),esc(row['record_id']),esc(row['status'])] for row in path])
         body+=table(['子 Run','结果状态','当前存活核验','候选处置','替代结果'],[
             [esc(row['run_id']),esc(row['run_status']),esc(row['observed_state']),
              esc(row['candidate']['candidate_state']),esc(row['candidate']['superseded_by'])] for row in current['runs']])
@@ -272,6 +277,9 @@ def comparisons_section(view):
     content = []
     for c in view["comparisons"]:
         content.append('<article><h3>' + esc(c["metric"]) + (' · '+esc(c['case_id']) if 'case_id' in c else '') + (': scale=' + esc(c["scale"]) if 'scale' in c else '') + '</h3>')
+        if c.get('execution_context',{}).get('kind')=='concurrent_ab':
+            content.append('<p class="notice">当前结果表示两版本同时运行、共同竞争资源时的相对表现。隔离后的串行表现需要单独测量。</p>')
+            content.append(details('并发竞争条件',c['execution_context']))
         from .comparison import normalized_cost, decisions
         verdict=decisions(c)
         labels={'correctness':'正确性','comparability':'可比性','statistics':'统计筛查','non_regression':'回退门槛','performance_target':'预设目标','improvement':'加速证据'}

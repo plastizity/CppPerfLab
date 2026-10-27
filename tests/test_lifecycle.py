@@ -15,7 +15,7 @@ from cppperflab.budget import execution_budget
 from cppperflab.cli import dispatch, parser
 from cppperflab.errors import LabError
 from cppperflab.execution import execute
-from cppperflab.lifecycle import RunProgress, observe_process, process_identity, run_status, status_from_result
+from cppperflab.lifecycle import RunProgress, StudyProgress, observe_process, process_identity, run_status, status_from_result
 from cppperflab.protocol import sha256
 from cppperflab.storage import Store, write_json
 from test_core import request_template
@@ -47,6 +47,30 @@ class LifecycleTests(unittest.TestCase):
         self.assertIn('live_progress_metadata_overhead_is_unquantified',selected['candidates'][0]['reasons'])
         request['measurement']['progress']='yes';write_json(config,request)
         with self.assertRaises(LabError):load_request(config)
+
+    def test_study_progress_registers_and_finishes_multiple_children(self):
+        directory = self.root / 'study'; directory.mkdir()
+        result = {'status': 'running'}
+        progress = StudyProgress(result, directory, [{'measurement': {'progress': True}}], 2)
+        first = progress.register_child('run', 'run-a', {'slot': 0})
+        second = progress.register_child('run', 'run-b', {'slot': 1})
+        self.assertEqual((first, second), (0, 1))
+        self.assertEqual(progress.data['active_children'], [0, 1])
+        self.assertIsNone(progress.data['active_child'])
+        progress.finish_child(first)
+        self.assertEqual(progress.data['active_children'], [1])
+        self.assertEqual(progress.data['active_child'], second)
+        progress.terminal()
+        self.assertEqual(progress.data['active_children'], [])
+        self.assertIsNone(progress.data['active_child'])
+
+    def test_disabled_study_progress_does_not_register_or_write(self):
+        directory = self.root / 'study'; directory.mkdir()
+        progress = StudyProgress({'status': 'running'}, directory,
+            [{'measurement': {'progress': False}}], 1)
+        self.assertIsNone(progress.register_child('run', 'run-a', {}))
+        self.assertIsNone(progress.finish_child(0))
+        self.assertFalse((directory / 'study.json').exists())
 
     def test_early_run_without_fingerprints_cannot_claim_artifacts_verified(self):
         identifier,_,_=self.record(status='running')

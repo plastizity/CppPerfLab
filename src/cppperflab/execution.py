@@ -5,9 +5,12 @@ import resource
 import signal
 import subprocess
 import time
+from contextvars import ContextVar
 
 from .errors import LabError
 
+
+_execution_events = ContextVar('cppperflab_execution_events', default=None)
 
 def kill_group(pid, sig):
     try:
@@ -17,7 +20,7 @@ def kill_group(pid, sig):
 
 
 def execute(argv, directory, *, cwd=None, env=None, timeout=60, affinity=None,
-            limits=None, runtime_identity=None, identity_target=None, identity_direct=False,on_start=None):
+            limits=None, runtime_identity=None, identity_target=None, identity_direct=False,on_start=None,on_exit=None):
     """Return execution facts; nonzero child status is interpreted by the adapter.
 
     Each child gets its own session. Detached/daemonizing workloads are unsupported.
@@ -53,8 +56,12 @@ def execute(argv, directory, *, cwd=None, env=None, timeout=60, affinity=None,
             raise LabError("tool_failed", "Could not launch process", {"reason": str(error), "argv": argv}) from error
         status = "completed"
         observer = None
+        started_ns=time.monotonic_ns()
+        execution_events=_execution_events.get()
         deadline=time.monotonic()+timeout
         try:
+            if execution_events is not None:
+                execution_events('start',dict(pid=process.pid,argv=argv,directory=str(directory),started_monotonic_ns=started_ns))
             if on_start is not None:on_start(process.pid)
             if runtime_identity is None:
                 process.wait(timeout=max(0,deadline-time.monotonic()))
@@ -85,9 +92,16 @@ def execute(argv, directory, *, cwd=None, env=None, timeout=60, affinity=None,
                 kill_group(process.pid, signal.SIGKILL)
                 process.wait()
             kill_group(process.pid, signal.SIGKILL)
-            if observer is not None:observer.finish()
-    return {"argv": argv, "cwd": str(cwd or directory), "environment": child_env,"pid":process.pid,
-            "returncode": process.returncode, "status": status,
+            ended_ns=time.monotonic_ns()
+            record={"argv":argv,"cwd":str(cwd or directory),"environment":child_env,"pid":process.pid,
+                "returncode":process.returncode,"status":status,"started_monotonic_ns":started_ns,"ended_monotonic_ns":ended_ns,
+                "monotonic_scope":"observed launcher-command lifetime after Popen through cleanup; excludes postprocessing"}
+            try:
+                if execution_events is not None:execution_events('end',record)
+                if on_exit is not None:on_exit(record)
+            finally:
+                if observer is not None:observer.finish()
+    return {**record,
             "orchestrator_elapsed_seconds": time.monotonic() - started,
             "timing_scope": "diagnostic launcher lifetime; not a target performance metric"}
 

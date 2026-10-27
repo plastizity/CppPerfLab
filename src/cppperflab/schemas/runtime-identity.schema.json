@@ -112,7 +112,51 @@
     "actual_executables": {
       "type": "array",
       "items": {
-        "type": "object"
+        "type": "object",
+        "properties": {
+          "thread_observation": {
+            "type": "object",
+            "properties": {
+              "evidence_state": {"enum": ["Measured", "Unsupported", "Missing"]},
+              "max_observed_count": {"type": ["integer", "null"], "minimum": 0},
+              "first_snapshot": {"type": "string", "minLength": 1},
+              "last_snapshot": {"type": "string", "minLength": 1},
+              "observed_snapshots": {"type": "integer", "minimum": 0},
+              "observations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "tid": {"type": "integer", "minimum": 1},
+                    "allowed_cpus": {"type": "array", "items": {"type": "integer", "minimum": 0}, "uniqueItems": true},
+                    "first_snapshot": {"type": "string", "minLength": 1},
+                    "last_snapshot": {"type": "string", "minLength": 1},
+                    "observed_snapshots": {"type": "integer", "minimum": 1}
+                  },
+                  "required": ["tid", "allowed_cpus", "first_snapshot", "last_snapshot", "observed_snapshots"],
+                  "additionalProperties": false
+                }
+              },
+              "issues": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "tid": {"type": ["integer", "null"]},
+                    "evidence_state": {"enum": ["Unsupported", "Missing"]},
+                    "reason": {"type": "string", "minLength": 1},
+                    "snapshot": {"type": "string", "minLength": 1}
+                  },
+                  "required": ["tid", "evidence_state", "reason", "snapshot"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["evidence_state", "max_observed_count", "first_snapshot", "last_snapshot", "observed_snapshots", "observations", "issues"],
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": true
       }
     },
     "objects": {

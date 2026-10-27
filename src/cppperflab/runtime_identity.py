@@ -122,6 +122,7 @@ class RuntimeObserver:
                 if pid in seen:continue
                 seen.add(pid);fd=self.handles[pid];row=dict(pid=pid,raw={},evidence_state='Missing')
                 rows.append(row)
+                image=None
                 try:
                     data=_read_at(fd,'stat');row['raw']['stat_b64']=_encoded(data)
                     info=process_stat(data.decode('utf-8'));row['process']=info
@@ -141,6 +142,9 @@ class RuntimeObserver:
                     image['last_snapshot']=evidence
                     if row['target_match']:
                         self.target_snapshots+=1
+                        thread_observation=image.setdefault('thread_observation',dict(evidence_state='Missing',max_observed_count=None,
+                            first_snapshot=evidence,last_snapshot=evidence,observed_snapshots=0,observations=[],issues=[]))
+                        thread_observation['last_snapshot']=evidence
                         self._object(dict(path=row['actual_executable'],device=row['executable_signature']['device'],inode=row['executable_signature']['inode'],
                             ambiguous_path=row['actual_executable'].endswith(' (deleted)') or '\\012' in row['actual_executable']),pid,info['start_ticks'],evidence,'proc_exe')
                         for m in maps:self._object(m,pid,info['start_ticks'],evidence)
@@ -148,7 +152,36 @@ class RuntimeObserver:
                     task_fd=os.open('task',os.O_RDONLY|os.O_DIRECTORY,dir_fd=fd)
                     try:
                         row['raw']['children']={}
-                        for tid in sorted(os.listdir(task_fd),key=int):
+                        tids=sorted(os.listdir(task_fd),key=int)
+                        if row['target_match']:
+                            thread_observation=image['thread_observation']
+                            thread_observation['evidence_state']='Measured'
+                            thread_observation['observed_snapshots']+=1
+                            count=len(tids)
+                            thread_observation['max_observed_count']=count if thread_observation['max_observed_count'] is None else max(thread_observation['max_observed_count'],count)
+                            row['raw']['tasks']={}
+                            for tid_text in tids:
+                                tid=int(tid_text)
+                                task=dict(tid=tid,evidence_state='Missing')
+                                row['raw']['tasks'][tid_text]=task
+                                try:
+                                    allowed=sorted(os.sched_getaffinity(tid))
+                                    task.update(evidence_state='Measured',allowed_cpus=allowed)
+                                    previous=next((o for o in thread_observation['observations'] if o['tid']==tid and o['allowed_cpus']==allowed),None)
+                                    if previous is None:
+                                        thread_observation['observations'].append(dict(tid=tid,allowed_cpus=allowed,first_snapshot=evidence,last_snapshot=evidence,observed_snapshots=1))
+                                    else:
+                                        previous['last_snapshot']=evidence
+                                        previous['observed_snapshots']+=1
+                                except (FileNotFoundError,ProcessLookupError) as error:
+                                    task.update(evidence_state='Missing',reason=str(error))
+                                    thread_observation['issues'].append(dict(tid=tid,evidence_state='Missing',reason=str(error),snapshot=evidence))
+                                except PermissionError as error:
+                                    task.update(evidence_state='Unsupported',reason=str(error))
+                                    thread_observation['issues'].append(dict(tid=tid,evidence_state='Unsupported',reason=str(error),snapshot=evidence))
+                            if thread_observation['observations']:
+                                thread_observation['evidence_state']='Measured'
+                        for tid in tids:
                             try:raw=_read_at(task_fd,tid+'/children')
                             except (FileNotFoundError,ProcessLookupError):continue
                             row['raw']['children'][tid]=_encoded(raw)
@@ -158,8 +191,12 @@ class RuntimeObserver:
                     finally:os.close(task_fd)
                 except (FileNotFoundError,ProcessLookupError) as error:
                     row.update(evidence_state='Missing',reason=str(error));self.errors.append(dict(pid=pid,evidence_state='Missing',reason=str(error),snapshot=evidence))
+                    if row.get('target_match') and image is not None:
+                        image['thread_observation']['issues'].append(dict(tid=None,evidence_state='Missing',reason=str(error),snapshot=evidence))
                 except (PermissionError,UnicodeError) as error:
                     row.update(evidence_state='Unsupported',reason=str(error));self.errors.append(dict(pid=pid,evidence_state='Unsupported',reason=str(error),snapshot=evidence))
+                    if row.get('target_match') and image is not None:
+                        image['thread_observation']['issues'].append(dict(tid=None,evidence_state='Unsupported',reason=str(error),snapshot=evidence))
         finally:
             ended=time.monotonic_ns()
             write_json(self.directory/evidence,dict(schema_version=1,started_monotonic_ns=started,ended_monotonic_ns=ended,processes=rows))
