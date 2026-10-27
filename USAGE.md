@@ -145,7 +145,7 @@ perflab report RUN_ID --format agent --store /absolute/consumer-lab/store --json
 | 对照与联合验收 | [实验有效性与分层确认](guides/experiment-validity.md)、[串行配对](guides/paired-studies.md)、[并发配对](guides/concurrent-paired.md)、[联合评估](guides/joint-assessment.md) |
 | 输入与独立测量 | [样本回放](guides/sample-capture.md)、[函数/类框架](guides/file-case-framework.md) |
 | 科学计算 | [工作量与强扩展](guides/scientific-performance.md)、[数值求解验证](guides/solver-validation.md) |
-| 数据搬运与工作量 | [数据搬运诊断](guides/data-movement.md) |
+| 数据搬运与工作量 | [数据搬运诊断与内存控制器能力预检](guides/data-movement.md) |
 | 运行与诊断 | [运行状态](guides/run-status.md)、[实际加载身份](guides/runtime-identity.md)、[CPU 采样](guides/sampling-interpretability.md)、[应用线程活动](guides/thread-activity.md)、[OS 切换时间线](guides/scheduler-timeline.md) |
 
 正式指标语义见 [性能领域与指标规范](docs/performance_domain_metrics_spec.md)，

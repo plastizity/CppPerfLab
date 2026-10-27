@@ -202,8 +202,21 @@ def catalog(registry, domain=None, metric_id=None):
             collection_method = 'explicit per-execution interval or declared summary phase report' if phase_metric else 'explicit post-sample solver validation' if solver_metric else 'same-sample derivation' if spec['operands'] else ('study' if name.startswith('parallel.') or name in ('algorithm.growth_ratio','algorithm.doubling_ratio','algorithm.empirical_exponent') else 'adapter')
         result.append({**spec, 'source_capability': operands,
                        'providers': providers, 'collection_method': collection_method})
-    return {'schema_version': 1, 'metrics': result,
-            'note': 'Definitions and provider declarations are not availability claims; use tools probe and plan.'}
+    response = {'schema_version': 1, 'metrics': result,
+                'note': 'Definitions and provider declarations are not availability claims; use tools probe and plan.'}
+    if metric_id is None and (domain is None or domain in ('D05', 'D10', 'D12')):
+        response['capability_gaps'] = [{
+            'capability_id': 'memory_controller_traffic',
+            'domains': ['D05', 'D10', 'D12'],
+            'collection_status': 'Unsupported',
+            'reason': 'collector_not_implemented',
+            'scope': 'shared controller/socket/system; not process',
+            'discovery_command': 'perflab tools probe --capability memory-controller-traffic --json',
+            'requirements': ['native PMU visibility', 'documented units and scale',
+                'actual permission probe', 'all controllers, topology, window and background scope validation'],
+            'interpretation': 'Current platform collection capability only; does not describe any historical run or physical hardware.'
+        }]
+    return response
 
 
 def convert(value, source, target):

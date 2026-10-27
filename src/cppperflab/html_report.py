@@ -78,6 +78,13 @@ def line_plot(series, x_label, y_label, *, log=False):
 def data_movement_section(view):
     section=view['data_movement']
     content=['<p class="notice">以下为各次采集的结果、工作量和数据搬运观测。范围、分母及证据分别列示；并列不证明因果。插桩运行耗时不能代替原生运行耗时。</p>']
+    gaps=section.get('capability_gaps',[])
+    if gaps:
+        content.append('<h3>采集能力与测量证据缺口</h3><p class="notice">采集器状态描述平台软件能力，不代表当前或历史硬件状态；发现结果不会回填到旧实验。</p>')
+        content.append(table(['能力','历史实验测量证据','当前采集器','范围','机器能力查询'],[
+            [esc(gap['capability_id']),esc(gap['measurement_evidence_state'])+' · '+esc(gap['reason']),
+             esc(gap['collector_status'])+' · '+esc(gap['collector_reason']),esc(gap['scope']),
+             esc(gap['discovery_command'])] for gap in gaps]))
     def tool_text(tool):
         if tool is None: return '未记录'
         return ' · '.join(str(tool[key]) for key in ('id','version') if tool.get(key)) or '未记录'

@@ -104,6 +104,12 @@ def data_movement_projection(runs, comparisons=(), members=()):
                  'reason': 'No numeric observation is available for this column; see per-metric evidence states.'}
                 for key, value in columns.items() if not value['observations']]
     return {'schema_version': 1, 'columns': columns, 'unknowns': unknowns, 'possible_explanations': [],
+            'capability_gaps': [{'capability_id':'memory_controller_traffic',
+                'measurement_evidence_state':'Missing',
+                'reason':'No physical traffic observation is archived for these source Runs.',
+                'collector_status':'Unsupported', 'collector_reason':'collector_not_implemented',
+                'scope':'shared controller/socket/system; not process',
+                'discovery_command':'perflab tools probe --capability memory-controller-traffic --json'}],
             'limitations': ['Rows retain their original scope, state and per-sample evidence; they are not aggregated across runs.',
                             'Reported work and logical bytes are target declarations, not physical DRAM traffic.',
                             'Instrumented-run time is not a native timing baseline; inspect each source tool.',

@@ -1,0 +1,474 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cppperflab:memory-controller-readiness:1",
+  "title": "Memory controller metadata readiness v1",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "execution_performed": {
+      "const": false
+    },
+    "collection_available": {
+      "const": false
+    },
+    "scope": {
+      "const": "shared memory controller / socket / system; not target process"
+    },
+    "host": {
+      "$ref": "#/$defs/host"
+    },
+    "policy": {
+      "$ref": "#/$defs/policy"
+    },
+    "inventory": {
+      "$ref": "#/$defs/inventory"
+    },
+    "measurement": {
+      "$ref": "#/$defs/measurement"
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    },
+    "collector": {
+      "type": "object",
+      "properties": {
+        "evidence_state": {
+          "const": "Unsupported"
+        },
+        "reason": {
+          "const": "collector_not_implemented"
+        }
+      },
+      "required": [
+        "evidence_state",
+        "reason"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "execution_performed",
+    "collection_available",
+    "scope",
+    "host",
+    "policy",
+    "inventory",
+    "measurement",
+    "limitations",
+    "collector"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "observation": {
+      "type": "object",
+      "properties": {
+        "evidence_state": {
+          "enum": [
+            "Measured",
+            "Estimated",
+            "Modeled",
+            "Unsupported",
+            "Missing",
+            "Invalid"
+          ]
+        },
+        "source": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "string"
+        },
+        "value": {
+          "type": [
+            "string",
+            "number",
+            "boolean"
+          ]
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "reason": {
+          "type": "string"
+        },
+        "errno": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "entries": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/observation"
+          }
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "$ref": "#/$defs/observation"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "syntax": {
+                    "enum": [
+                      "bare",
+                      "parameter"
+                    ]
+                  }
+                },
+                "required": [
+                  "syntax"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "register": {
+          "type": "string"
+        },
+        "bits": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "meaning": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence_state"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "evidence_state": {
+                "enum": [
+                  "Unsupported",
+                  "Missing",
+                  "Invalid"
+                ]
+              }
+            },
+            "required": [
+              "evidence_state"
+            ]
+          },
+          "then": {
+            "required": [
+              "reason"
+            ]
+          }
+        }
+      ]
+    },
+    "rawparsed": {
+      "type": "object",
+      "properties": {
+        "raw": {
+          "$ref": "#/$defs/observation"
+        },
+        "parsed": {
+          "$ref": "#/$defs/observation"
+        }
+      },
+      "required": [
+        "raw",
+        "parsed"
+      ],
+      "additionalProperties": false
+    },
+    "topology": {
+      "type": "object",
+      "properties": {
+        "evidence_state": {
+          "enum": [
+            "Measured",
+            "Missing",
+            "Invalid"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "representative_cpu": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "package": {
+          "$ref": "#/$defs/rawparsed"
+        },
+        "die": {
+          "$ref": "#/$defs/rawparsed"
+        },
+        "nodes": {
+          "$ref": "#/$defs/observation"
+        },
+        "limitation": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence_state"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "evidence_state": {
+                "enum": [
+                  "Missing",
+                  "Invalid"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "reason"
+            ]
+          }
+        }
+      ]
+    },
+    "event": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "encoding": {
+          "$ref": "#/$defs/observation"
+        },
+        "encoding_validation": {
+          "$ref": "#/$defs/observation"
+        },
+        "unit": {
+          "$ref": "#/$defs/observation"
+        },
+        "unit_validation": {
+          "$ref": "#/$defs/observation"
+        },
+        "scale": {
+          "$ref": "#/$defs/observation"
+        },
+        "scale_validation": {
+          "$ref": "#/$defs/observation"
+        }
+      },
+      "required": [
+        "name",
+        "encoding",
+        "encoding_validation",
+        "unit",
+        "unit_validation",
+        "scale",
+        "scale_validation"
+      ],
+      "additionalProperties": false
+    },
+    "candidate": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/rawparsed"
+        },
+        "format": {
+          "$ref": "#/$defs/observation"
+        },
+        "format_validation": {
+          "$ref": "#/$defs/observation"
+        },
+        "caps": {
+          "$ref": "#/$defs/observation"
+        },
+        "events_directory": {
+          "$ref": "#/$defs/observation"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/event"
+          }
+        },
+        "cpumask": {
+          "$ref": "#/$defs/observation"
+        },
+        "cpus": {
+          "$ref": "#/$defs/observation"
+        },
+        "representative_topology": {
+          "$ref": "#/$defs/topology"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "format",
+        "format_validation",
+        "caps",
+        "events_directory",
+        "events",
+        "cpumask",
+        "cpus",
+        "representative_topology"
+      ],
+      "additionalProperties": false
+    },
+    "inventory": {
+      "type": "object",
+      "properties": {
+        "evidence_state": {
+          "enum": [
+            "Measured",
+            "Missing"
+          ]
+        },
+        "source": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "errno": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "visible_pmus": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/candidate"
+          }
+        }
+      },
+      "required": [
+        "evidence_state",
+        "source",
+        "visible_pmus",
+        "candidates"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "evidence_state": {
+                "const": "Missing"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "reason"
+            ]
+          }
+        }
+      ]
+    },
+    "host": {
+      "type": "object",
+      "properties": {
+        "machine": {
+          "type": "string"
+        },
+        "kernel": {
+          "type": "string"
+        },
+        "cpuinfo": {
+          "$ref": "#/$defs/observation"
+        },
+        "guest_indicator": {
+          "$ref": "#/$defs/observation"
+        }
+      },
+      "required": [
+        "machine",
+        "kernel",
+        "cpuinfo",
+        "guest_indicator"
+      ],
+      "additionalProperties": false
+    },
+    "policy": {
+      "type": "object",
+      "properties": {
+        "perf_event_paranoid": {
+          "$ref": "#/$defs/rawparsed"
+        },
+        "process_status": {
+          "$ref": "#/$defs/observation"
+        },
+        "cap_eff": {
+          "$ref": "#/$defs/observation"
+        },
+        "permissions": {
+          "$ref": "#/$defs/observation"
+        }
+      },
+      "required": [
+        "perf_event_paranoid",
+        "process_status",
+        "cap_eff",
+        "permissions"
+      ],
+      "additionalProperties": false
+    },
+    "measurement": {
+      "type": "object",
+      "properties": {
+        "evidence_state": {
+          "const": "Unsupported"
+        },
+        "value": {
+          "type": "null"
+        },
+        "reason": {
+          "enum": [
+            "inventory_unavailable",
+            "no_visible_candidate",
+            "collector_not_implemented"
+          ]
+        }
+      },
+      "required": [
+        "evidence_state",
+        "value",
+        "reason"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

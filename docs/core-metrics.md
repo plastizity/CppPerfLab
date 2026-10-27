@@ -73,6 +73,13 @@ does not change the existing generic cache or IPC semantics.
 Real WSL2 guest probes and independent L1D/dTLB paired Studies are recorded in
 the guide; LLC returned `ENODEV`. Those results do not qualify native Linux PMUs.
 
+For memory-controller traffic, the registry exposes a capability gap rather than
+a numeric DRAM metric. `perflab tools probe --capability memory-controller-traffic
+--json` is read-only metadata discovery, with schema `memory-controller-readiness`;
+the collector remains Unsupported and missing historical Run observations remain
+Missing. See the [data movement guide](../guides/data-movement.md) for metadata,
+permissions and shared-scope limitations.
+
 ## Policy and acceptance
 
 A policy file requires `schema_version: 1`, `min_samples` (integer >=2), `max_cv`

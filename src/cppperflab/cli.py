@@ -138,6 +138,8 @@ def parser():
         if name == "tools":
             q.add_argument("operation", choices=("list", "probe"))
             q.add_argument("--tool", choices=tuple(REGISTRY))
+            q.add_argument("--capability", choices=("memory-controller-traffic",),
+                           help="metadata-only discovery; does not execute perf or a target")
             q.add_argument("--events", help="perf-stat event list for capability probe")
             q.add_argument("--event-group", action="append", default=[],
                            help="strong perf-stat event group, comma separated; repeat for multiple groups")
@@ -148,7 +150,7 @@ def parser():
             q.add_argument("name")
             q.add_argument("run_id")
         if name == "schema":
-            q.add_argument("kind", choices=("request", "result", "envelope", "study", "analysis", "query", "tools", "summary", "metrics", "evidence", "policy", "solver", "solver-validation", "phases", "sample-manifest", "collection", "runtime-identity", "sampling", "run-status", "study-status", "activity-timeline", "phase-mapping", "phase-summary", "scheduler-timeline", "agent-report", "claim", "execution-state", "state-verification", "validity", "workflow", "workflow-result", "work", "event-descriptor"))
+            q.add_argument("kind", choices=("request", "result", "envelope", "study", "analysis", "query", "tools", "summary", "metrics", "evidence", "policy", "solver", "solver-validation", "phases", "sample-manifest", "collection", "runtime-identity", "sampling", "run-status", "study-status", "activity-timeline", "phase-mapping", "phase-summary", "scheduler-timeline", "agent-report", "claim", "execution-state", "state-verification", "validity", "workflow", "workflow-result", "work", "event-descriptor", "memory-controller-readiness"))
     return p
 
 
@@ -247,8 +249,16 @@ def dispatch(args):
                 "tool_configuration": configuration_status(),
                 "platform_support": "Linux/WSL execution; native Windows not implemented"}
     if args.command == "tools":
+        if args.capability:
+            if args.operation != 'probe' or args.tool or args.events or args.event_group:
+                raise LabError('invalid_request','--capability requires tools probe without --tool, --events or --event-group')
+            from .uncore import probe
+            return probe(store)
         if args.operation == "list":
             return {"tools": [a.describe() for a in REGISTRY.values()],
+                    "discovery_capabilities": [{"capability_id":"memory_controller_traffic",
+                        "command":"perflab tools probe --capability memory-controller-traffic --json",
+                        "execution_performed":False,"kind":"metadata-only; not a measurement adapter"}],
                     "note": "Descriptors are not proof of availability; run tools probe"}
         if (args.events or args.event_group) and args.tool != "perf-stat":
             raise LabError("invalid_request", "--events/--event-group require --tool perf-stat")

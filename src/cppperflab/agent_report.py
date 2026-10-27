@@ -285,7 +285,8 @@ def _data_movement(view, limit):
             comparisons.append(row)
         columns[name]['comparisons']=_collection(comparisons,len(column['comparisons']))
     return {'schema_version': 1, 'columns': columns, 'unknowns': section['unknowns'],
-            'possible_explanations': section['possible_explanations'], 'limitations': section['limitations']}
+            'possible_explanations': section['possible_explanations'], 'limitations': section['limitations'],
+            'capability_gaps': section.get('capability_gaps', [])}
 
 
 def build_agent_report(view, store_root, limit=5):

@@ -114,8 +114,48 @@ Missing。三个区块只用于接口验证，不据此宣称稳定收益或因�
 另一次显式 `runtime_identity` measurement 观察 Run
 `20261027T043551-18722671e171` 记录 38 个目标快照、8 个映射对象；期望
 对象门为 `NOT_REQUESTED`。它不证明所有库从启动时已加载，也不能补造先前
-实验的加载记录；观察本身的扰动未量化。详见
+实验的加载记录；观察本身的扰动未量化。8 条映射记录中 7 条指纹为 Measured，
+一条早期 `/usr/bin/perf` 指纹为 Invalid：路径身份与映射的设备/inode 不一致；
+另一条 perf 记录及目标和已观察的 libc、libgcc、libm、libstdc++、ld 指纹为
+Measured。保留原始 Invalid，不修复或补造；详情见同目录 `identity.stdout.json`。
+详见
 [实际加载身份](runtime-identity.md)。
+
+## 内存控制器流量能力预检
+
+当需要物理内存流量证据时，可独立查询平台当前能力并执行只读元数据发现：
+
+```bash
+perflab metrics --domain D05 --json
+perflab schema memory-controller-readiness --json
+perflab tools probe --capability memory-controller-traffic --json
+```
+
+`--capability` 与 `--tool`、`--events`、`--event-group` 互斥。此预检只读取
+sysfs/proc 元数据并归档 `uncore-readiness.json`，不执行 perf 或目标程序。
+可见的 PMU 列表及候选项的 type、format、events 编码、unit、scale、cpumask、
+cpus、代表 CPU 拓扑、paranoid 和 CapEff 等原始信息分别保留；读取不到的字段
+为 Missing。目录不可读时不能据此声称没有设备，发现候选也不证明覆盖所有控制器。
+
+缺 unit 或 scale 为 Missing，无法识别的单位换算为 Unsupported，损坏元数据为
+Invalid；不默认每个事件是 64 字节。尚未执行实际权限探测时权限为 Missing，
+不能仅凭 `CapEff` 为零或 `perf_event_paranoid` 为 2 推断拒绝。相关字段语义
+见 [Linux PMU sysfs ABI](https://raw.githubusercontent.com/torvalds/linux/master/Documentation/ABI/testing/sysfs-bus-event_source-devices-events)
+及 [Linux perf 安全说明](https://www.kernel.org/doc/html/latest/admin-guide/perf-security.html)。
+
+当前平台没有内存控制器流量采集器或物理 DRAM 数值指标：Registry 的
+`capability_gaps` 标记当前采集器 Unsupported；现有来源 Run 未归档物理流量时，
+报告中的该次测量证据是 Missing。此能力状态不能回填成旧实验的硬件状态。
+即使找到候选 PMU，当前采集器仍为 Unsupported；控制器/插槽/系统共享流量
+不能直接归因到目标进程。平台不会因此自动执行系统范围 perf、安装工具或提权。
+
+本轮 WSL2 guest 只读预检 `20261027T051550-76932ad59c67` 记录了 8 个可见
+PMU、零个 IMC/UMC 候选：清单为 Measured，该环境的测量能力为 Unsupported
+（`no_visible_candidate`），采集器为 Unsupported（`collector_not_implemented`），
+权限未探测、为 Missing。证据见
+`.perflab/validations/dme-p2-readiness-20261027/discovery.stdout.json`；未执行
+目标、计数器测量或编译。存在丰富候选的原生主机路径尚未真实验证，目前仅有
+fixture 测试；此结果不证明宿主没有内存控制器。
 
 ## 配置工作量报告
 

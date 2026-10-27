@@ -207,6 +207,44 @@
         },
         "limitations": {
           "type": "array"
+        },
+        "capability_gaps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "capability_id",
+              "measurement_evidence_state",
+              "reason",
+              "collector_status",
+              "collector_reason",
+              "scope",
+              "discovery_command"
+            ],
+            "properties": {
+              "capability_id": {
+                "type": "string"
+              },
+              "measurement_evidence_state": {
+                "const": "Missing"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "collector_status": {
+                "const": "Unsupported"
+              },
+              "collector_reason": {
+                "type": "string"
+              },
+              "scope": {
+                "type": "string"
+              },
+              "discovery_command": {
+                "type": "string"
+              }
+            }
+          }
         }
       }
     }

@@ -25,3 +25,10 @@ The WSL2 guest validation found L1D and dTLB pairs available and LLC aliases
 unsupported with perf `ENODEV`; it does not predict another environment. Consult
 the guide for the preserved probes, independent paired Study IDs, runtime-identity
 observation limits and commands for generating per-layer configurations.
+
+For physical memory-controller traffic, query `perflab tools probe --capability
+memory-controller-traffic --json` and the readiness schema. This is metadata-only
+discovery, not a permission test or traffic collection. A missing source-Run
+observation is Missing; the currently unimplemented collector is Unsupported.
+Never infer historical hardware capability, complete controller coverage, byte
+conversion, or per-process attribution from candidate metadata.
