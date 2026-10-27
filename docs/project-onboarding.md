@@ -24,7 +24,8 @@ CppPerfLab 当前仓库规则不授权修改业务仓库；本指南不会自动
 
 ## 2. 先准备构建与正确性命令
 
-复用目标工程已经验证的构建方式，在独立目录保留 baseline 和 candidate。
+优先复用目标工程已经验证的 baseline 和 candidate 产物及构建记录；已有可用
+产物时不要求重新编译。确需构建时，由获得授权的工程负责人按原构建方式提供。
 平台当前运行预构建程序，`target.build` 只是元数据，不会执行 CMake。
 性能构建保持既定浮点语义；需要采样时保留符号/合适的栈展开信息。
 Sanitizer 构建单独验证，不与普通性能构建比较耗时。
@@ -102,13 +103,17 @@ JSON 是当前支持的配置格式。
 ## 4. 调用和验收
 
 在 CppPerfLab 根目录安装并加载环境；新终端重新 source 即可，不修改全局配置。
+先将下方 Store 占位路径替换为平台仓库外的实际实验目录。该环境变量仅影响
+当前 shell 的后续命令；也可逐条使用 `--store` 指定相同目录。
 
 ```bash
 bash scripts/install.sh
 source scripts/env.sh
+export CPPPERFLAB_STORE=/absolute/consumer-lab/store
 perflab doctor --json
 perflab tools list --json
 perflab schema request --json
+perflab budget --config /absolute/config/baseline.json --json
 perflab plan --config /absolute/config/baseline.json --json
 perflab run --config /absolute/config/baseline.json --json
 perflab report RUN_ID --format json
@@ -155,3 +160,68 @@ Google Benchmark 需要在目标内注册 case，当前 filter 必须恰好选�
 版本获取方式、run/study ID、原始证据目录、结论及限制。配置可能含绝对路径；
 换机器需重新解析配置并探测能力。只复制结果摘要无法复现；原始输入和构建产物
 由工程自身保存，实验目录应随报告保留。分享前检查记录的路径、环境及日志内容。
+
+## 6. 生产阶段报告的接入验收
+
+本节使用现有配置、Run/Study、Comparison 和报告，不增加接入专用执行器或
+验收协议。实际业务配置、路径、日志、输入和 Store 由使用方保存在平台仓库外；
+平台内的公开示例继续使用合成负载。平台本身的合成验证不能替代使用方接入验收。
+
+### 先交接可执行条件
+
+| 内容 | 使用方需确定的条件 |
+|---|---|
+| 执行范围 | 由谁运行、允许执行哪些既有二进制/检查命令、是否只解析已有日志；不隐含授权修改源码或重新构建 |
+| 输入与状态 | 代表性输入及版本、工作量定义、线程设置、输出位置和重复执行的状态语义 |
+| 正确性 | 检查当前目标的可信命令、数值精度/收敛约束及覆盖范围；缺失时不批准收益 |
+| 阶段接入 | 格式模板或关键字映射，或程序导出的通用阶段记录；明确单位、包含关系、调用次数和工作量字段 |
+| 比较目标 | 预先确定时间范围、资源门、样本/波动要求、收益与回退门槛；不照搬合成示例阈值 |
+| 交接位置 | 实验配置、映射、外部 Store、Run/Study ID 和报告位置；敏感数据不复制进平台仓库 |
+
+已有阶段日志可先用 `perflab phases import` 离线检查映射；格式模板和关键字
+映射见 [phase-log-mapping.md](phase-log-mapping.md)。该命令不执行目标程序。
+一次解析成功只说明这份日志符合配置，不能证明程序正确、完整阶段覆盖或性能收益。
+源日志只有汇总时间时不补造起止区间、自身时间、调用数或未覆盖时间。
+
+### 昂贵程序只选一条正式执行路径
+
+先查看 `budget` 中正确性、预检、预热、正式测量和逐次验证的次数；它不会执行
+目标程序，也不承诺这些步骤的预计秒数。随后按需 `plan`；能力探测可能执行
+Google Benchmark 列表查询。预检会实际运行目标，不是免费的静态检查。
+使用方应在执行前评估这些成本；不为接入验收自动追加一次完整运行。
+
+- 已有可追溯的完整 Run/Study 时，先查询原记录及证据，判断能否满足本次验收；
+  原身份或覆盖不足时记录缺口，不修改旧结果或把缺失补成通过。
+- 首次接入单版本时，使用普通 `run` 检查程序、阶段和正确性链。一次正式样本
+  可以验证接口，不能支持稳定加速结论。
+- 需要新旧版本收益时，预登记 [paired Study](paired-studies.md)，直接执行该
+  Study，不把“各跑一次再跑配对”当作强制流程。资源竞争不是研究目标时使用
+  串行交错；显式并发 A/B 的结果按 [并发条件](concurrent-paired.md)解释。
+- 需要并列全过程、阶段、实际工作量和资源门时，使用
+  [joint assessment](joint-assessment.md)；其当前接口要求归档 cases 和串行条件，
+  不承诺任意生产程序配置都能直接套用。只有所需证据齐备时才启用相应门。
+
+以下命令只查询已产生的记录；将 ID 和仓库外路径替换为实际值：
+
+```bash
+perflab status RUN_ID --store /absolute/consumer-lab/store --json
+perflab analyze RUN_ID --section phase_summaries --store /absolute/consumer-lab/store --json
+perflab report RUN_ID --format html --output /absolute/consumer-lab/run.html --store /absolute/consumer-lab/store --json
+perflab analyze STUDY_ID --kind study --section comparisons --store /absolute/consumer-lab/store --json
+perflab report STUDY_ID --kind study --format html --output /absolute/consumer-lab/study.html --store /absolute/consumer-lab/store --json
+```
+
+`phase_summaries` 用于汇总日志映射；带起止区间的阶段记录使用 `--section phases`。
+按已有证据类型选择，不要求同一程序同时导出两种格式。
+
+### 三种结论分别交付
+
+| 验收 | 可据以判断的证据 | 不足时如何报告 |
+|---|---|---|
+| 日志接入 | 原始日志、映射、转换结果与来源行；单位及父子关系经人工核对 | 只报告已解析范围；未声明的调用数、时间线和工作量保持缺失 |
+| 程序接入 | 真实 Run ID、目标/输入身份、独立正确性结果、正式样本和原始工具证据；启用加载身份观察时还需审阅其覆盖与门 | 尚无实际程序运行时标记未验证；解析成功不能替代本项 |
+| 优化收益 | 所有预定负载的可比结果、正确性与统计门、全过程加速证据、工作量变化及资源代价 | `PASS` 与“无明确加速”可以同时成立；保留 FAIL/INCONCLUSIVE/UNSUPPORTED 及其原因 |
+
+给平台或下一位 Agent 的验收摘要只需引用：配置/映射位置、Run/Study ID、
+报告位置、三种结论、证据限制及下一步实验。不把业务日志复制到平台提交中，
+也不以局部阶段下降替代全过程收益。

@@ -35,8 +35,11 @@ observations are additive records, not fake zero-valued legacy metrics.
 Existing known v1 adapter methods are interpreted on read; old files are not
 rewritten. Unknown old methods are Invalid in the observation projection. Six-state
 records, source operands and paths are queryable under `observations`; numeric
-summaries isolate states. Current native adapters emit Measured. There is no new
-estimation or simulation Adapter; tests verify those states are not promoted.
+summaries isolate states. Native tool measurements retain Measured within their
+declared scope; modeled or estimated data is not promoted. Cachegrind emits Modeled
+cache/branch observations, and the logical arithmetic-intensity model is also
+Modeled; neither is a hardware counter measurement. Callgrind and DHAT are
+instrumented observations with their own scopes and overhead.
 
 IPC, CPI, Branch MPKI and branch miss rate share one implementation. The old IPC
 summary calls it rather than retaining another formula. Every pair must have matching
@@ -68,24 +71,29 @@ receive a measured performance acceptance score.
 Lower-direction benefit is baseline/candidate; higher-direction benefit is its
 inverse. Maximum regression limits candidate relative increase for lower metrics
 and relative decrease for higher metrics. A specified minimum benefit is another
-gate. Samples/CV and the descriptive 95% unpaired bootstrap interval determine
-PASS/FAIL/INCONCLUSIVE. Unsupported required evidence produces UNSUPPORTED. Metrics
+gate. For ordinary `compare`, samples/CV and the descriptive 95% unpaired bootstrap
+interval determine PASS/FAIL/INCONCLUSIVE. Unsupported required evidence produces UNSUPPORTED. Metrics
 without an objective direction remain INCONCLUSIVE unless a direction is declared.
 
 A comparison still preserves legacy `speedup=baseline/candidate` and classification;
 for non-time metrics that field is a value ratio, not runtime speedup. New
 `acceptance`, `acceptance_policy`, `runtime_reduction` and ratio semantics distinguish
 these meanings. Comparison inference is Estimated, with Measured input evidence.
-Bootstrap remains 5000 resamples, seed 1014, 95%, unpaired; no paired-CI claim.
+Ordinary `compare` uses 5000 unpaired bootstrap resamples, seed 1014, at 95%.
+The [paired Study](paired-studies.md) instead resamples paired block indexes;
+ABBA contributes one block observation, not two independent pairs. Both intervals
+remain descriptive and do not prove independent blocks or eliminate drift.
 `regression_status` reflects the combined acceptance gate, not a separate statistic.
 
 CLI success means a report was computed, not that its acceptance passed. Consumers
 must inspect `acceptance.status`. Incomparable comparisons preserve existing error
 exit semantics, are archived without a speedup, and include the acceptance reason.
 PASS applies to the selected metric and declared oracle coverage, not an automatic
-production approval or a multi-resource score. Use separate comparisons for resource
-gates. No Suite aggregation, absolute numeric-tolerance engine or per-sample solver
-validation is implemented in this increment.
+production approval or a multi-resource score. The separate [joint assessment](joint-assessment.md)
+combines declared per-metric gates while preserving the underlying comparisons and
+the distinction between acceptance and supported end-to-end improvement.
+Pre-registered weighted Suite aggregation remains unimplemented. D14 per-solve
+numeric gates use the explicit contracts in [solver validation](solver-validation.md).
 
 ## Reproducible validation
 
@@ -115,8 +123,11 @@ Core registry/evidence/formulas/query/comparison are implemented. D07 fixed-work
 strong scaling and D12 explicit stage/work counters now have callable interfaces
 and real synthetic validation; see [scientific experiments](scientific-performance.md).
 D14 now supports explicit solver logs and independent per-solve numerical gates;
-see [solver validation](solver-validation.md). DAG, scheduler, NUMA traffic, physical I/O,
-Roofline, TMA and other advanced adapters are not implemented by this increment.
+see [solver validation](solver-validation.md). Explicit application work/wait intervals
+and Linux perf switch-event on/off-CPU intervals are available; the latter cannot
+identify wakeups, runnable-queue delay or blocking causes. See [scheduler timeline](scheduler-timeline.md).
+Weak scaling, DAG reconstruction, NUMA traffic, physical I/O, hardware Roofline and
+Top-Down Microarchitecture Analysis remain unimplemented.
 
 D01–D05 后续已实现 Callgrind/DHAT/Cachegrind、Kernel 显式计数和 secondary_metrics 多指标增长；接口及实测范围见 [domains-1-5.md](domains-1-5.md)。
 
@@ -158,11 +169,13 @@ perflab report TIME_COMPARISON --kind comparison --format html --output cost.htm
 
 Summaries retain each metric's cost and acceptance independently; they do not
 combine memory, timing and diagnostic observations into one score or infer an overall
-PASS. Cross-profiler workload correlation and a joint resource-gated verdict are
-not implemented. Do not accept a candidate solely because its time cost is small.
+PASS. For predeclared cross-profiler workload identity and resource-gated verdicts,
+use [joint assessment](joint-assessment.md). Do not accept a candidate solely because
+its time cost is small.
 
 
 Ordinary-program phase reports, exact scope selection, pre-execution budgets and
 separate decision gates are described in [phase observation](phase-observation.md).
-The C++ recorder and text example are not yet the general file-driven case framework;
-remaining feedback requirements are tracked in [the checklist](feedback-implementation.md).
+The separate [file-driven case framework](file-case-framework.md) supports text,
+JSON and binary inputs through reviewed C++ adapters. The implementation and
+validation limits of feedback requirements are tracked in [the checklist](feedback-implementation.md).
