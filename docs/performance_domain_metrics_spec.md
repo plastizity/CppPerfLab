@@ -25,8 +25,8 @@ Adapter 负责采集和解析，领域知识负责解释证据，comparison 负�
 | 仅规格设计 | 本文定义了语义或接口，尚未实现 |
 | 尚未开始 | 尚无完整规格或实现 |
 
-当前已有 Hyperfine、Google Benchmark、perf-stat、perf-record、Massif、Callgrind、DHAT、Cachegrind Adapter；已有单轴规模实验、经验增长拟合、描述性统计和非配对 Bootstrap 比较。另有预登记串行或显式并发竞争的配对 Study；其区块统计及适用范围见 [paired-studies.md](paired-studies.md) 和 [concurrent-paired.md](concurrent-paired.md)。
-既有验证范围见 [acceptance.md](acceptance.md)，不能据此推断所有硬件事件在本机可用。
+当前已有 Hyperfine、Google Benchmark、perf-stat、perf-record、Massif、Callgrind、DHAT、Cachegrind Adapter；已有单轴规模实验、经验增长拟合、描述性统计和非配对 Bootstrap 比较。另有预登记串行或显式并发竞争的配对 Study；其区块统计及适用范围见 [paired-studies.md](../guides/paired-studies.md) 和 [concurrent-paired.md](../guides/concurrent-paired.md)。
+既有验证范围见 [acceptance.md](history/acceptance.md)，不能据此推断所有硬件事件在本机可用。
 同样本 IPC 推导已有实现；统一 Metric Registry、六态证据协议和单指标可配置验收已有核心实现；Suite 汇总仍待实现。当前可调用范围及限制见 [core-metrics.md](core-metrics.md)。
 本规范文档本身不构成实测证明；后续核心实现及测试/实测记录独立维护，不将文档覆盖计为工具覆盖。
 
@@ -134,7 +134,7 @@ SuiteSpeedup = exp(Σ w_i ln(Speedup_i) / Σ w_i)。场景、正权重和重要�
 
 ### 3.2 公共验收规则 G
 
-每域继承以下规则，领域规则只增加必要条件。以下规则 ID 是目标机器规则的规格；现有 comparison 与 assessment 实现了部分相关验收门，但不表示这些规则 ID 均已有独立执行器，实际范围见 [core-metrics.md](core-metrics.md) 和 [joint-assessment.md](joint-assessment.md)。
+每域继承以下规则，领域规则只增加必要条件。以下规则 ID 是目标机器规则的规格；现有 comparison 与 assessment 实现了部分相关验收门，但不表示这些规则 ID 均已有独立执行器，实际范围见 [core-metrics.md](core-metrics.md) 和 [joint-assessment.md](../guides/joint-assessment.md)。
 
 | Rule ID | 判断内容 | 结果 |
 |---|---|---|
@@ -340,7 +340,7 @@ TMA 不是跨架构固定事件公式。本规范要求保存 CPU 型号、PMU�
 | `parallel.thread_utilization` | E/D | Σ线程 on-CPU 时间 / Σ线程可用窗口时长，ratio | 调度 trace 或可靠 CPU accounting；包含 spin，不能解释为有效工作比例 |
 | `parallel.cpu_cost_per_operation` | O/E | 总 CPU 秒 / Q，CPU-s/operation | 同范围完整线程集合，结果正确性通过 |
 
-**条件、开销与误差：** 原生线程规模计时可复用 Linux/WSL 执行后端；已支持应用显式工作/等待区间，以及 perf switch 事件的闭合 on/off-CPU 区间。后者不能识别锁等待或阻塞原因，详见 [thread-activity.md](thread-activity.md) 和 [scheduler-timeline.md](scheduler-timeline.md)。记录物理核/逻辑核、SMT、亲和性、嵌套线程池、实际线程数和超额订阅。插桩可改变争用；线程开始/结束与动态 worker 容量必须纳入分母，不能无条件使用 p×T。
+**条件、开销与误差：** 原生线程规模计时可复用 Linux/WSL 执行后端；已支持应用显式工作/等待区间，以及 perf switch 事件的闭合 on/off-CPU 区间。后者不能识别锁等待或阻塞原因，详见 [thread-activity.md](../guides/thread-activity.md) 和 [scheduler-timeline.md](../guides/scheduler-timeline.md)。记录物理核/逻辑核、SMT、亲和性、嵌套线程池、实际线程数和超额订阅。插桩可改变争用；线程开始/结束与动态 worker 容量必须纳入分母，不能无条件使用 p×T。
 强扩展固定全局问题，弱扩展固定每 worker 工作，不能把两者混成一条效率曲线；参见 [NERSC parallelism](https://docs.nersc.gov/performance/parallelism/)。
 
 **解释与方向：** 分区、线程局部数据、减少共享写、任务粒度和同步结构调整可能改善时间，也可能增加复制、内存或尾部不均衡。超线性加速可能源于 cache 容量变化，需解释而非截断到效率 1。高 CPU 利用率不能排除忙等；低扩展性不能单凭总时间断言锁或 false sharing。
@@ -349,7 +349,7 @@ TMA 不是跨架构固定事件公式。本规范要求保存 CPU 型号、PMU�
 
 **Agent 流程：** 主 Skill → 固定语义和线程矩阵 → 原生时间/CPU 成本 → 检查扩展转折 → 查询锁/调度/一致性事件 → 区分同步、负载不均和内存瓶颈 → 逐线程数复测。
 
-**现有映射与缺口：** 固定全局工作量的单机强扩展 Study 已实现并以合成负载验证；以声明的 worker 参数作为处理变量，具体范围和可比性见 [scientific-performance.md](scientific-performance.md)。请求的 worker 数不证明实际线程利用率。显式应用工作/等待区间和 perf 闭合切换区间可分别查询，但不自动推断锁等待原因；弱扩展、锁归因、false sharing 事件和完整 worker 追踪仍待实现。
+**现有映射与缺口：** 固定全局工作量的单机强扩展 Study 已实现并以合成负载验证；以声明的 worker 参数作为处理变量，具体范围和可比性见 [scientific-performance.md](../guides/scientific-performance.md)。请求的 worker 数不证明实际线程利用率。显式应用工作/等待区间和 perf 闭合切换区间可分别查询，但不自动推断锁等待原因；弱扩展、锁归因、false sharing 事件和完整 worker 追踪仍待实现。
 
 ## 11. D08 — 任务调度与 DAG 执行优化（P1）
 
@@ -402,7 +402,7 @@ TMA 不是跨架构固定事件公式。本规范要求保存 CPU 型号、PMU�
 
 **Agent 流程：** 主 Skill → CPU 时间与墙钟差异 → 软件计数 → 判断需要 on/off-CPU trace → 按 runnable 与 blocked 分解 → 受控线程/亲和性实验 → 延迟及吞吐复测。
 
-**现有映射与缺口：** context-switches 和 task-clock 已映射，需真实 probe；perf-record 已支持采样，并可选解析 `PERF_RECORD_SWITCH` 的双边界 on/off-CPU 区间，已在本机合成负载验证，见 [scheduler-timeline.md](scheduler-timeline.md)。它不是完整 perf sched 状态机，不包含 wakeup，不能据此计算 runnable 延迟或归因阻塞；迁移、内核时间和系统调用专项解析仍待实现。
+**现有映射与缺口：** context-switches 和 task-clock 已映射，需真实 probe；perf-record 已支持采样，并可选解析 `PERF_RECORD_SWITCH` 的双边界 on/off-CPU 区间，已在本机合成负载验证，见 [scheduler-timeline.md](../guides/scheduler-timeline.md)。它不是完整 perf sched 状态机，不包含 wakeup，不能据此计算 runnable 延迟或归因阻塞；迁移、内核时间和系统调用专项解析仍待实现。
 
 ## 13. D10 — NUMA 与虚拟内存优化（P1）
 
@@ -481,7 +481,7 @@ Linux `/proc/PID/io` 区分字符计数和存储 accounting；不能把 rchar �
 
 **Agent 流程：** 主 Skill → 绘制实际模块数据路径 → 全流程基线 → 标记转换与临时表示 → 区分重复工作与硬件流量 → 最小数据流变更实验 → 联合 D03/D04/D05 验收。
 
-**现有映射与缺口：** 原生时间和 Massif 可提供整体时间/heap 线索。Google Benchmark 已支持目标显式提供的单阶段时间及复制字节、遍历、重建和复用等计数，见 [scientific-performance.md](scientific-performance.md)；普通程序也可通过显式阶段协议或[日志映射](phase-log-mapping.md)提供阶段及工作量。只有目标实际提供且范围清楚的计数才可解释；自动识别完整跨模块搬运、临时对象生命周期与归因仍未实现，逻辑复制字节不等于物理 DRAM 流量。
+**现有映射与缺口：** 原生时间和 Massif 可提供整体时间/heap 线索。Google Benchmark 已支持目标显式提供的单阶段时间及复制字节、遍历、重建和复用等计数，见 [scientific-performance.md](../guides/scientific-performance.md)；普通程序也可通过显式阶段协议或[日志映射](../guides/phase-log-mapping.md)提供阶段及工作量。只有目标实际提供且范围清楚的计数才可解释；自动识别完整跨模块搬运、临时对象生命周期与归因仍未实现，逻辑复制字节不等于物理 DRAM 流量。
 
 ## 16. D14 — 数值精度、收敛性与求解效率优化（P1，纳入当前范围）
 
@@ -537,13 +537,13 @@ Linux `/proc/PID/io` 区分字符计数和存储 accounting；不能把 rchar �
 
 **Agent 流程：** 主 Skill → 问题/精度/停止契约 → 独立 oracle 与 baseline → setup/solve/转换分解 → 收敛曲线与单位迭代成本 → 设计满足数学前提的方案 → 相同问题和精度下逐次验证 → 时间及内存比较。
 
-**现有映射与缺口：** 结构化求解报告与逐次独立验证已接入非批量 Adapter，合成数值样例已验证终止原因、逐次残差/误差硬门和 setup/solve/total 等目标报告时间，见 [solver-validation.md](solver-validation.md)。普通前置检查不能替代逐次验证；目标报告的 `solver.total_time` 与原生 `time.wall` 均不包含外部独立验证，因此不能称为完整 Time-to-Validated-Solution。专用求解器日志自动识别、完整外部验证总耗时及 solver 专属峰值内存仍缺；Massif heap 是进程范围线索。构建产物由外部负责人提供，不接管编译流程。
+**现有映射与缺口：** 结构化求解报告与逐次独立验证已接入非批量 Adapter，合成数值样例已验证终止原因、逐次残差/误差硬门和 setup/solve/total 等目标报告时间，见 [solver-validation.md](../guides/solver-validation.md)。普通前置检查不能替代逐次验证；目标报告的 `solver.total_time` 与原生 `time.wall` 均不包含外部独立验证，因此不能称为完整 Time-to-Validated-Solution。专用求解器日志自动识别、完整外部验证总耗时及 solver 专属峰值内存仍缺；Massif heap 是进程范围线索。构建产物由外部负责人提供，不接管编译流程。
 
 ## 17. 当前十三领域能力映射与实施顺序
 
 下表按能力而非整域标记状态。已实现项的合成验证范围见
-[domains-1-5.md](domains-1-5.md)、[scientific-performance.md](scientific-performance.md)、
-[solver-validation.md](solver-validation.md) 和 [feedback-implementation.md](feedback-implementation.md)；
+[domains-1-5.md](../guides/domains-1-5.md)、[scientific-performance.md](../guides/scientific-performance.md)、
+[solver-validation.md](../guides/solver-validation.md) 和 [feedback-implementation.md](history/feedback-implementation.md)；
 真实业务适用性仍需对应负载和工具探测。
 
 | 领域 | 已实现或可复用的具体能力 | 仍需条件或尚未实现 |
@@ -631,10 +631,10 @@ Agent 应按以下证据链工作：真实工作负载与正确性 → 原生基
 ## 19. 本版本交付边界
 
 本版本完成 D01–D12、D14 共十三个领域的规格、共同证据契约、目标验收规则与现有架构映射。
-核心 Registry、六态证据、IPC/CPI/分支派生量、规模增长比、单指标验收及结构化逐次求解验证已实现，真实合成实验已执行；完整领域采集、Suite 和包含外部验证的完整求解总耗时仍待实施。以 [core-metrics.md](core-metrics.md) 和 [solver-validation.md](solver-validation.md) 的接口与限制为准，本文其余“设计”字段不自动成为可调用功能。
+核心 Registry、六态证据、IPC/CPI/分支派生量、规模增长比、单指标验收及结构化逐次求解验证已实现，真实合成实验已执行；完整领域采集、Suite 和包含外部验证的完整求解总耗时仍待实施。以 [core-metrics.md](core-metrics.md) 和 [solver-validation.md](../guides/solver-validation.md) 的接口与限制为准，本文其余“设计”字段不自动成为可调用功能。
 后续更新必须同时注明规范版本、语义变更、实现状态与实测证据，不能以表格行数代表平台能力。
 
-2026-10-15 实现状态补记：D07 已接入固定工作量强扩展 Study，D12 已接入 Google Benchmark 显式单阶段秒数与复制/遍历/重建/复用计数。真实合成负载已验证；D14 已接入显式结构化求解日志、独立逐次残差/误差重算及硬门，见 [solver-validation.md](solver-validation.md)。弱扩展、锁等待归因、自动阶段重建、专用求解器日志适配及完整外部验证总耗时仍未实现。接口、误差与复现方式见 [scientific-performance.md](scientific-performance.md)。本补记不改变 v0.3.0 领域规格语义。
+2026-10-15 实现状态补记：D07 已接入固定工作量强扩展 Study，D12 已接入 Google Benchmark 显式单阶段秒数与复制/遍历/重建/复用计数。真实合成负载已验证；D14 已接入显式结构化求解日志、独立逐次残差/误差重算及硬门，见 [solver-validation.md](../guides/solver-validation.md)。弱扩展、锁等待归因、自动阶段重建、专用求解器日志适配及完整外部验证总耗时仍未实现。接口、误差与复现方式见 [scientific-performance.md](../guides/scientific-performance.md)。本补记不改变 v0.3.0 领域规格语义。
 
 ### 19.1 版本记录
 
@@ -645,4 +645,4 @@ Agent 应按以下证据链工作：真实工作负载与正确性 → 原生基
 
 ### 19.2 D01–D05 实施状态更新
 
-现已通过独立合成样例验证 Callgrind/DHAT/Cachegrind 与 Kernel 显式计数接入，以及同一 study 的多指标时间/空间增长。可运行命令、精确范围与剩余缺口见 [domains-1-5.md](domains-1-5.md)。该实施更新不将高级领域规格自动标为已完成。
+现已通过独立合成样例验证 Callgrind/DHAT/Cachegrind 与 Kernel 显式计数接入，以及同一 study 的多指标时间/空间增长。可运行命令、精确范围与剩余缺口见 [domains-1-5.md](../guides/domains-1-5.md)。该实施更新不将高级领域规格自动标为已完成。

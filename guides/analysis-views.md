@@ -140,6 +140,6 @@ HTML 必须指定 output，且不得写入权威实验存储，以免覆盖证�
 3. 本地工具配置 → 实际 probe 与错误路径测试。
 
 复用原有实验存储、统计引擎和 Adapter。阶段格式/关键字映射、应用/OS 切换时间线、
-预登记配对 A/B 已有实现，范围见[反馈清单](feedback-implementation.md)。MCP、Web
+预登记配对 A/B 已有实现，范围见[反馈清单](../docs/history/feedback-implementation.md)。MCP、Web
 服务、完整调用树与等待原因追踪仍不属于当前能力，双报告也不补造这些证据。
-完整验证见 [验收记录](acceptance.md)。
+完整验证见 [验收记录](../docs/history/acceptance.md)。

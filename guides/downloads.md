@@ -60,4 +60,4 @@ cmake --build --preset check
 ASAN_OPTIONS=detect_leaks=0 ctest --preset check
 ```
 
-Future tool choices and their boundaries are in [tool selection](tool-selection.md).
+Future tool choices and their boundaries are in [tool selection](../docs/tool-selection.md).

@@ -2,7 +2,7 @@
 
 Use this workflow when the user needs a single reproducible verdict from local
 stage changes, full-process timing, actual work and resource costs. Read
-`docs/joint-assessment.md`; `perflab schema study --json` exposes the contract.
+`guides/joint-assessment.md`; `perflab schema study --json` exposes the contract.
 
 Create `analysis: assessment` with archived complete cases and reviewed baseline/
 candidate request templates. Declare profiles, roles, metric scopes, policies,

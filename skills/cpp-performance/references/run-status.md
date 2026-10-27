@@ -1,6 +1,6 @@
 # Run and Study lifecycle reference
 
-Read [`docs/run-status.md`](../../../docs/run-status.md) for commands and limits.
+Read [`guides/run-status.md`](../../../guides/run-status.md) for commands and limits.
 `perflab status RUN_ID --json` is the point-in-time process/build/candidate query;
 `history` lists existing run records. A record can contain `status=running` after
 its owner exited, so use the identity-checked `observed_state`. Old records have no
@@ -27,7 +27,7 @@ the observed range, the estimate is `Missing`, never zero. A changed request,
 actual identity, tool/version/path/hash, static machine, or implementation source
 does not reuse history. Unknown tool versions and old records without a timer/key
 cannot contribute. Study ETA remains `Missing` because its future jobs are
-heterogeneous. See [the protocol details](../../../docs/run-status.md).
+heterogeneous. See [the protocol details](../../../guides/run-status.md).
 
 For composed experiments use `perflab status STUDY_ID --kind study --json` and
 `perflab analyze STUDY_ID --kind study --section lifecycle --json`. Study lifecycle

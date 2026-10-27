@@ -80,7 +80,7 @@ for non-time metrics that field is a value ratio, not runtime speedup. New
 `acceptance`, `acceptance_policy`, `runtime_reduction` and ratio semantics distinguish
 these meanings. Comparison inference is Estimated, with Measured input evidence.
 Ordinary `compare` uses 5000 unpaired bootstrap resamples, seed 1014, at 95%.
-The [paired Study](paired-studies.md) instead resamples paired block indexes;
+The [paired Study](../guides/paired-studies.md) instead resamples paired block indexes;
 ABBA contributes one block observation, not two independent pairs. Both intervals
 remain descriptive and do not prove independent blocks or eliminate drift.
 `regression_status` reflects the combined acceptance gate, not a separate statistic.
@@ -89,11 +89,11 @@ CLI success means a report was computed, not that its acceptance passed. Consume
 must inspect `acceptance.status`. Incomparable comparisons preserve existing error
 exit semantics, are archived without a speedup, and include the acceptance reason.
 PASS applies to the selected metric and declared oracle coverage, not an automatic
-production approval or a multi-resource score. The separate [joint assessment](joint-assessment.md)
+production approval or a multi-resource score. The separate [joint assessment](../guides/joint-assessment.md)
 combines declared per-metric gates while preserving the underlying comparisons and
 the distinction between acceptance and supported end-to-end improvement.
 Pre-registered weighted Suite aggregation remains unimplemented. D14 per-solve
-numeric gates use the explicit contracts in [solver validation](solver-validation.md).
+numeric gates use the explicit contracts in [solver validation](../guides/solver-validation.md).
 
 ## Reproducible validation
 
@@ -121,15 +121,15 @@ added. D13/D15/D16/D17 remain deferred/out of scope.
 
 Core registry/evidence/formulas/query/comparison are implemented. D07 fixed-work
 strong scaling and D12 explicit stage/work counters now have callable interfaces
-and real synthetic validation; see [scientific experiments](scientific-performance.md).
+and real synthetic validation; see [scientific experiments](../guides/scientific-performance.md).
 D14 now supports explicit solver logs and independent per-solve numerical gates;
-see [solver validation](solver-validation.md). Explicit application work/wait intervals
+see [solver validation](../guides/solver-validation.md). Explicit application work/wait intervals
 and Linux perf switch-event on/off-CPU intervals are available; the latter cannot
-identify wakeups, runnable-queue delay or blocking causes. See [scheduler timeline](scheduler-timeline.md).
+identify wakeups, runnable-queue delay or blocking causes. See [scheduler timeline](../guides/scheduler-timeline.md).
 Weak scaling, DAG reconstruction, NUMA traffic, physical I/O, hardware Roofline and
 Top-Down Microarchitecture Analysis remain unimplemented.
 
-D01–D05 后续已实现 Callgrind/DHAT/Cachegrind、Kernel 显式计数和 secondary_metrics 多指标增长；接口及实测范围见 [domains-1-5.md](domains-1-5.md)。
+D01–D05 后续已实现 Callgrind/DHAT/Cachegrind、Kernel 显式计数和 secondary_metrics 多指标增长；接口及实测范围见 [domains-1-5.md](../guides/domains-1-5.md)。
 
 
 ## Normalized performance cost
@@ -170,12 +170,12 @@ perflab report TIME_COMPARISON --kind comparison --format html --output cost.htm
 Summaries retain each metric's cost and acceptance independently; they do not
 combine memory, timing and diagnostic observations into one score or infer an overall
 PASS. For predeclared cross-profiler workload identity and resource-gated verdicts,
-use [joint assessment](joint-assessment.md). Do not accept a candidate solely because
+use [joint assessment](../guides/joint-assessment.md). Do not accept a candidate solely because
 its time cost is small.
 
 
 Ordinary-program phase reports, exact scope selection, pre-execution budgets and
-separate decision gates are described in [phase observation](phase-observation.md).
-The separate [file-driven case framework](file-case-framework.md) supports text,
+separate decision gates are described in [phase observation](../guides/phase-observation.md).
+The separate [file-driven case framework](../guides/file-case-framework.md) supports text,
 JSON and binary inputs through reviewed C++ adapters. The implementation and
-validation limits of feedback requirements are tracked in [the checklist](feedback-implementation.md).
+validation limits of feedback requirements are tracked in [the checklist](history/feedback-implementation.md).

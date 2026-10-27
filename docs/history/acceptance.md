@@ -1,4 +1,9 @@
-# 当前实现与验收范围
+# 历史实现与验收记录
+
+本文保留 2026-10-14 各轮验收时的实现范围、测试数量和实验记录；其中“当前”及
+“尚未实现”均指对应历史阶段，不代表最新能力。实际使用从根目录
+[USAGE.md](../../USAGE.md) 开始；后续反馈改进与限制见
+[反馈实施记录](feedback-implementation.md)。历史测试数量不作为当前测试总数。
 
 平台使用独立合成 C++ 示例进行公开验收，不收录使用方身份、业务数据或证据。
 
@@ -43,7 +48,7 @@ perflab doctor --tool-config tools.example.json --json
 ```
 
 修改示例工具配置，使其对应已安装工具。实际实验命令见 README；取得返回 ID 后，
-按 [统一分析视图](analysis-views.md) 导出报告。工具不可用时保留诊断，不伪造结果。
+按 [统一分析视图](../../guides/analysis-views.md) 导出报告。工具不可用时保留诊断，不伪造结果。
 运行数据、报告、本机配置和第三方二进制均不属于公开源码。
 
 ## 限制与后续
@@ -61,7 +66,7 @@ perflab doctor --tool-config tools.example.json --json
 新增核心能力现有 62 项 Python 测试通过，既有 C++ 样例 20 项 CTest 通过。
 实际执行了五规模算法研究、四种同样本 CPU 派生指标查询、Massif 观察和两轮
 原生 A/B；旧记录只读查询和原始证据哈希访问通过。可运行命令和能力边界见
-[core-metrics.md](core-metrics.md)。本地原始证据与量化报告保存在
+[core-metrics.md](../core-metrics.md)。本地原始证据与量化报告保存在
 `.perflab/validations/20261014T084014-c1a14621413d/`。
 
 验证目录中的 manifest 记录执行流程，verification 记录最终安装版接口检查；
@@ -75,5 +80,5 @@ Skill 格式校验脚本因缺 PyYAML 未运行成功；已检查 frontmatter、
 76 项 Python 测试与 22 项 CTest 通过，完成三个新 Adapter、显式 Kernel 工作量、
 多指标空间增长和原生 A/B 的串行验证。原始数据、策略和量化报告保存在
 `.perflab/validations/20261014T091925-9cc2a01e1c2c/`。接口与限制见
-[domains-1-5.md](domains-1-5.md)。Kernel 时间比较保留 INCONCLUSIVE，模型指标
+[domains-1-5.md](../../guides/domains-1-5.md)。Kernel 时间比较保留 INCONCLUSIVE，模型指标
 被拒绝用于实测收益验收；没有安装新工具或更改全局配置。

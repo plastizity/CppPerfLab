@@ -88,7 +88,7 @@ instruction_study.update(name='pair-count-instruction-growth',template='instruct
 save('instruction-study', instruction_study)
 
 # Integrated benchmark targets are optional; configurations are useful only after
-# building with PERFLAB_GOOGLE_BENCHMARK_ROOT as described in docs/downloads.md.
+# building with PERFLAB_GOOGLE_BENCHMARK_ROOT as described in guides/downloads.md.
 for label in ("baseline", "candidate"):
     micro = copy.deepcopy(algorithm)
     micro["name"] = "google-pairs-" + label

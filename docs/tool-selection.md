@@ -6,7 +6,7 @@
 ## 典型工具组合
 
 下表解释部分工具的选型，不是完整 Adapter 清单。Callgrind、DHAT 和 Cachegrind
-等后续接入能力见 [D01–D05](domains-1-5.md)；完整列表仍查询 CLI。
+等后续接入能力见 [D01–D05](../guides/domains-1-5.md)；完整列表仍查询 CLI。
 
 | 工具 | 选择依据 | 主要边界 |
 |---|---|---|
@@ -17,7 +17,7 @@
 
 上述组合互补；不将不同计时范围、内存指标或采样结果强行合并。
 安装某个工具不代表它能在本机采集。显式配置不可用时返回诊断，不隐式切换。
-依赖配置及构建步骤见 [本地依赖](downloads.md)。
+依赖配置及构建步骤见 [本地依赖](../guides/downloads.md)。
 
 ## 算法分析的实现方式
 
@@ -38,7 +38,7 @@ Polly、Halide、TACO、SPIRAL、Ginkgo 等领域工具仅在存在匹配需求�
 
 - 分配频率与临时分配：可评估 Heaptrack，补充 Massif 的堆快照。
 - 更深入的线程与任务追踪：已有应用区间和 perf switch-event 时间线，见
-  [scheduler-timeline.md](scheduler-timeline.md)；唤醒、运行队列延迟和 DAG 因果
+  [scheduler-timeline.md](../guides/scheduler-timeline.md)；唤醒、运行队列延迟和 DAG 因果
   追踪仍缺专用证据。Perfetto/Tracy 尚未接入，不将已有切换记录解释为等待原因。
 - 编译器与指令分析：优化报告、llvm-mca 等需要明确构建产物及测量范围。
 - 带宽与 NUMA：仅使用已探测且来源可信的事件，不从缓存 miss 推算带宽。

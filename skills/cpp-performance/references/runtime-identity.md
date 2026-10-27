@@ -1,6 +1,6 @@
 # Actual program and library identity
 
-Read `docs/runtime-identity.md` when copied binaries, RPATH/RUNPATH, dlopen or
+Read `guides/runtime-identity.md` when copied binaries, RPATH/RUNPATH, dlopen or
 uncertain library selection could invalidate a comparison. Discover the request
 and report schemas with `perflab schema request|runtime-identity --json`.
 

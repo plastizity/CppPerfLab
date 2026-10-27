@@ -8,11 +8,11 @@ The phase schema accepts either `{"kind":"application_work"}` or
 `{"kind":"application_wait","reason":"<caller label>"}`. In C++, annotate
 with `PhaseRecorder::Activity::Work` or `Activity::Wait` and a non-empty reason
 for Wait. For multi-thread traces, create one `LinuxMonotonic` recorder on each
-thread and call `write_group` after joining. See [the full protocol and formulas](../../../docs/thread-activity.md).
+thread and call `write_group` after joining. See [the full protocol and formulas](../../../guides/thread-activity.md).
 
 Application annotations describe the scopes the program marked. To inspect actual
 OS context-switch boundaries, collect the separate optional `scheduler` source
-described in [the scheduler timeline guide](../../../docs/scheduler-timeline.md).
+described in [the scheduler timeline guide](../../../guides/scheduler-timeline.md).
 
 Query stored evidence with:
 

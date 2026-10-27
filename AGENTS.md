@@ -1,5 +1,8 @@
 # CppPerfLab Agent entry
 
+Start with the root [usage guide](USAGE.md) for installation, experiment workflows,
+report exports and links to focused guides. Read only the guides needed for the task.
+
 For performance measurement, algorithm scaling, candidate comparison or tuning
 requests in this repository, first read
 [`skills/cpp-performance/SKILL.md`](skills/cpp-performance/SKILL.md).

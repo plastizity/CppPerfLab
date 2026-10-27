@@ -1,7 +1,7 @@
 # Per-solve numerical validation
 
 Use `metrics --domain D14`, `schema solver`, `schema solver-validation` and the
-contract/reproduction steps in `docs/solver-validation.md`.
+contract/reproduction steps in `guides/solver-validation.md`.
 
 Require an explicit fixed numerical task, norm, residual/error bounds and iteration
 budget before measuring. Configure `correctness.sample_validation` only for a

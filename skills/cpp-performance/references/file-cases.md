@@ -4,7 +4,7 @@ Use this path when the user wants to isolate a reviewed function/class or retain
 expensive/failed complete inputs. This is distinct from observing an existing
 production program, and shares its phase evidence and platform run/compare APIs.
 
-1. Read `docs/sample-capture.md` and `docs/file-case-framework.md`. Query
+1. Read `guides/sample-capture.md` and `guides/file-case-framework.md`. Query
    `perflab schema sample-manifest --json` and `perflab schema study --json`.
 2. Have the consumer define the input/expected format versions, completeness,
    attachments and independent validation. Do not serialize unknown business

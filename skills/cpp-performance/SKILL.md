@@ -6,7 +6,7 @@ description: C++ Algorithm Performance Engineering with CppPerfLab. Use for meas
 # C++ Algorithm Performance Engineering
 
 This Skill is original project guidance; third-party Skills are researched but not
-copied or installed. Enter through root `AGENTS.md`. Read `README.md` for installation
+copied or installed. Enter through root `AGENTS.md`. Read root `USAGE.md` for installation
 and the authoritative CLI examples, then load only the references needed below.
 
 ## First establish semantics and scope
@@ -122,7 +122,7 @@ For per-thread application work/wait timelines, read
 wall annotations and do not establish OS running/off-CPU time or wait cause.
 
 When Linux perf switch records are available, use
-[OS switch timelines](references/scheduler-timeline.md) for bounded per-thread
+[OS switch timelines](../../guides/scheduler-timeline.md) for bounded per-thread
 on/off-CPU intervals. These records do not show wakeups, runqueue delay or the
 cause of an off-CPU interval.
 

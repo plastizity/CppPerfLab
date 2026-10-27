@@ -1,6 +1,6 @@
 # Agent 结果查询
 
-先读取 [统一查询与报告说明](../../../docs/analysis-views.md)，按需加载章节，
+先读取 [统一查询与报告说明](../../../guides/analysis-views.md)，按需加载章节，
 不要复制或维护另一套指标表。
 
 快速交接时先用 `report ID --kind run|study|comparison|summary --format agent --json`
@@ -12,7 +12,7 @@ metrics/hotspots/quality 查询细节。先定位 evidence ID，再用 evidence 
 comparison 使用 kind comparison，study 使用 kind study。噪声不稳定或不可比
 时解释原因，不选择最快样本替代分类。growth 排名是有限范围经验拟合。
 
-多指标汇报读取 [分析总结说明](../../../docs/performance-summary.md)，查询
+多指标汇报读取 [分析总结说明](../../../guides/performance-summary.md)，查询
 section summary；跨记录使用 summarize。指令工作量、执行质量、资源与耗时
 独立判断，缺失 SIMD/数值数据不得推断。总结记录使用 kind summary。
 

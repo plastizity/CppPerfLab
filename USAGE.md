@@ -1,9 +1,89 @@
-# 接入一个 C++ 工程
+# CppPerfLab 使用说明
 
 适用对象：使用者和负责接入的 Agent。当前平台支持 Linux/WSL2 上的已编译
 可执行程序，以及已集成 Google Benchmark 的程序。接入普通程序不需要链接
 CppPerfLab，也不要求修改业务源码。本指南描述已实现接口；构建编排、调优器、
 自动源码修改和安全沙箱尚未实现。
+
+## 安装与快速入口
+
+在 CppPerfLab 根目录执行。需要 Python 3.11+ 和至少一种可用测量工具；安装是
+离线、项目本地的 zipapp，不安装系统依赖或修改全局配置。
+
+```bash
+bash scripts/install.sh
+source scripts/env.sh
+perflab --version
+perflab doctor --json
+perflab tools list --json
+perflab schema request --json
+```
+
+每个新 shell 重新执行 `source scripts/env.sh`；平台代码更新后重新执行安装脚本。
+具体工具路径可通过项目本地配置提供，说明见[工具配置及报告](guides/analysis-views.md)。
+工具安装或注册不代表本机有采集权限，应检查工具探测结果与目标兼容性。
+
+## 常用实验流程
+
+先根据下方的接入说明建立实际 JSON 配置；以下 `CONFIG`、`STUDY_CONFIG` 和
+`RUN_ID`/`STUDY_ID` 是占位符，必须替换。业务实验配置、输入、日志、Store 和
+导出报告保存在平台仓库外。`budget` 不执行目标，`plan` 的集成目标探测可能执行
+Google Benchmark 注册列表查询；`run`、`study` 和预检会实际运行目标及正确性命令。
+
+```bash
+perflab budget --config CONFIG --store /absolute/consumer-lab/store --json
+perflab plan --config CONFIG --store /absolute/consumer-lab/store --json
+perflab run --config CONFIG --store /absolute/consumer-lab/store --json
+perflab analyze RUN_ID --store /absolute/consumer-lab/store --json
+perflab budget --kind study --config STUDY_CONFIG --store /absolute/consumer-lab/store --json
+perflab study --config STUDY_CONFIG --store /absolute/consumer-lab/store --json
+```
+
+单 Run 或 Study 应依据目标选择一种执行路径；需要比较时可预先配置[配对实验](guides/paired-studies.md)，
+不用为了接入默认增加完整的单独运行。正式执行前检查预算、正确性命令、预检、
+预热、重复次数和实际工具能力。平台只运行已审查且已构建的目标。
+
+### 导出两份报告
+
+```bash
+perflab report STUDY_ID --kind study --format both --output /absolute/consumer-lab/report --store /absolute/consumer-lab/store --json
+perflab report RUN_ID --format agent --store /absolute/consumer-lab/store --json
+```
+
+第一条命令生成 `report.html` 和 `report.agent.json`；两者使用同一次分析视图。
+第二条返回精简 Agent 摘要。单 Run 导出时省略 `--kind study`；`--kind` 还支持
+`comparison` 和 `summary`。原始结果、证据和所有样本留在 Store，详细查询及 `--limit`
+行为见[报告与分析视图](guides/analysis-views.md)。执行完成、验收通过和加速证据
+是独立结论；缺失或不支持的指标不视为零或通过。
+
+### 测量函数或类
+
+已审查的 C++17 小型适配程序可以通过 [case.hpp](include/cppperflab/case.hpp) 接入函数
+或类，使用方负责输入解码、目标调用和独立验证。具体 hooks、输入文件格式、
+每次创建/复用重置的生命周期及复现命令见[函数与类测量框架](guides/file-case-framework.md)；
+昂贵或失败的输入可按[样本保存与回放](guides/sample-capture.md)使用既有 Store 和比较机制。
+函数调用阶段有单独计时；进程范围的硬件计数和内存指标不会自动变成函数区域计数。
+
+## 专题指南索引
+
+按需求阅读，不必全部加载：
+
+| 主题 | 相关指南 |
+|---|---|
+| 环境、指标和报告 | [本地依赖](guides/downloads.md)、[D01–D05 分析](guides/domains-1-5.md)、[多指标总结](guides/performance-summary.md)、[报告与查询](guides/analysis-views.md) |
+| 阶段与日志 | [阶段观测及预算](guides/phase-observation.md)、[格式/关键字映射](guides/phase-log-mapping.md) |
+| 对照与联合验收 | [串行配对](guides/paired-studies.md)、[并发配对](guides/concurrent-paired.md)、[联合评估](guides/joint-assessment.md) |
+| 输入与独立测量 | [样本回放](guides/sample-capture.md)、[函数/类框架](guides/file-case-framework.md) |
+| 科学计算 | [工作量与强扩展](guides/scientific-performance.md)、[数值求解验证](guides/solver-validation.md) |
+| 运行与诊断 | [运行状态](guides/run-status.md)、[实际加载身份](guides/runtime-identity.md)、[CPU 采样](guides/sampling-interpretability.md)、[应用线程活动](guides/thread-activity.md)、[OS 切换时间线](guides/scheduler-timeline.md) |
+
+正式指标语义见 [性能领域与指标规范](docs/performance_domain_metrics_spec.md)，
+数据契约见[协议](docs/protocol.md)。下面是已有程序的完整接入及验收说明。
+
+实现职责和能力边界见[架构](docs/architecture.md)、[核心指标](docs/core-metrics.md)
+及[工具选型](docs/tool-selection.md)。[历史验收](docs/history/acceptance.md)保留各轮
+测试与实验记录；[反馈实施记录](docs/history/feedback-implementation.md)还包含已有
+功能的限制与后续缺口，移入历史目录不表示这些缺口已经完成。
 
 ## 1. 接入前确认的信息
 
@@ -123,7 +203,7 @@ perflab analyze RUN_ID --json
 doctor/probe 的退出码 0 只代表发现完成；要检查各工具 available/reason。
 plan 的 selected/candidates 给出实际可用方案，不能把“命令存在”当成可采集。
 正确性失败或工具失败时保留原始证据，修复明确原因后启动新实验，不修改旧结果。
-错误分类见 [协议](protocol.md#lifecycle-and-errors)。
+错误分类见 [协议](docs/protocol.md#lifecycle-and-errors)。
 
 **接入成功**：目标身份和输入正确；oracle 实际执行；run completed；存在真实
 样本、工具原始文件和环境记录；report 可重读；测试失败能阻止计时。
@@ -152,9 +232,9 @@ ID 使用真实返回值。baseline 命名是保存引用，不会替使用者�
 工具能力及选项以 `tools list`、`schema`、`plan` 为准，避免维护另一份工具清单。
 Google Benchmark 需要在目标内注册 case，当前 filter 必须恰好选中一个 case；
 使用 `time.iteration.wall` 或 `time.iteration.cpu` 比较。
-构建步骤见 [本地依赖](downloads.md)，查询和展示见 [统一分析视图](analysis-views.md)。
+构建步骤见 [本地依赖](guides/downloads.md)，查询和展示见 [统一分析视图](guides/analysis-views.md)。
 多规模与多个预构建算法候选使用 `study`，见
-[算法实验指引](../skills/cpp-performance/references/algorithms.md)。经验拟合不是 Big-O 证明。
+[算法实验指引](skills/cpp-performance/references/algorithms.md)。经验拟合不是 Big-O 证明。
 
 交付给下一位使用者/Agent：接入记录、构建和验证命令、实验 JSON、输入/源码
 版本获取方式、run/study ID、原始证据目录、结论及限制。配置可能含绝对路径；
@@ -179,7 +259,7 @@ Google Benchmark 需要在目标内注册 case，当前 filter 必须恰好选�
 | 交接位置 | 实验配置、映射、外部 Store、Run/Study ID 和报告位置；敏感数据不复制进平台仓库 |
 
 已有阶段日志可先用 `perflab phases import` 离线检查映射；格式模板和关键字
-映射见 [phase-log-mapping.md](phase-log-mapping.md)。该命令不执行目标程序。
+映射见 [phase-log-mapping.md](guides/phase-log-mapping.md)。该命令不执行目标程序。
 一次解析成功只说明这份日志符合配置，不能证明程序正确、完整阶段覆盖或性能收益。
 源日志只有汇总时间时不补造起止区间、自身时间、调用数或未覆盖时间。
 
@@ -194,11 +274,11 @@ Google Benchmark 列表查询。预检会实际运行目标，不是免费的静
   原身份或覆盖不足时记录缺口，不修改旧结果或把缺失补成通过。
 - 首次接入单版本时，使用普通 `run` 检查程序、阶段和正确性链。一次正式样本
   可以验证接口，不能支持稳定加速结论。
-- 需要新旧版本收益时，预登记 [paired Study](paired-studies.md)，直接执行该
+- 需要新旧版本收益时，预登记 [paired Study](guides/paired-studies.md)，直接执行该
   Study，不把“各跑一次再跑配对”当作强制流程。资源竞争不是研究目标时使用
-  串行交错；显式并发 A/B 的结果按 [并发条件](concurrent-paired.md)解释。
+  串行交错；显式并发 A/B 的结果按 [并发条件](guides/concurrent-paired.md)解释。
 - 需要并列全过程、阶段、实际工作量和资源门时，使用
-  [joint assessment](joint-assessment.md)；其当前接口要求归档 cases 和串行条件，
+  [joint assessment](guides/joint-assessment.md)；其当前接口要求归档 cases 和串行条件，
   不承诺任意生产程序配置都能直接套用。只有所需证据齐备时才启用相应门。
 
 以下命令只查询已产生的记录；将 ID 和仓库外路径替换为实际值：

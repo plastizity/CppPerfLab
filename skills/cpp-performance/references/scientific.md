@@ -2,7 +2,7 @@
 
 Use existing CLI discovery (`metrics --domain D12`, `metrics --domain D07`) and
 `schema study`. Detailed contract and reproduction commands are in
-`docs/scientific-performance.md`.
+`guides/scientific-performance.md`.
 
 For an expensive pipeline, first query existing elapsed/work evidence. If the
 reviewed target already exports Google Benchmark counters, configure a named

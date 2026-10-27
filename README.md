@@ -1,234 +1,40 @@
 # CppPerfLab
 
-Agent-native C++ performance experiments on Linux/WSL2. CppPerfLab adapts mature
-tools, archives their raw evidence, and compares explicitly defined metrics.
-It neither rewrites application code nor requires a runtime library in the target.
+CppPerfLab is C++ performance analysis infrastructure for Linux/WSL2. It runs
+reviewed, prebuilt workloads with available measurement tools, preserves raw
+evidence, and compares results under explicit correctness and compatibility
+conditions. It supports both existing programs and file-driven function/class
+experiments.
 
-## Install and run
+## Get started
 
-Requires Python 3.11+, and at least one measured tool. Installation is offline and
-project-local, using Python's standard `zipapp`; no pip/network/system changes:
+Python 3.11+ and at least one compatible measurement tool are required. The
+project-local installer is offline and does not modify global configuration.
 
-```bash
-bash scripts/install.sh
-source scripts/env.sh
-perflab --version
-perflab doctor --json
-perflab tools list --json
-perflab tools probe --tool perf-stat --events duration_time,cycles,instructions --json
-```
+**Start with the [usage guide](USAGE.md)** for installation, workload setup,
+execution budgets, experiments, human and Agent reports, and the topic guide index.
+It also explains how to integrate a consuming project without an implicit rebuild.
 
-Tool paths can be centralized in a project-local JSON file:
+- [Agent entry and project rules](AGENTS.md)
+- [Performance domains and metrics specification](docs/performance_domain_metrics_spec.md)
+- [Architecture](docs/architecture.md), [protocol](docs/protocol.md), and [core metrics](docs/core-metrics.md)
+- [Historical validation](docs/history/acceptance.md) and [feedback implementation](docs/history/feedback-implementation.md)
 
-```bash
-cp tools.example.json tools.local.json
-# Edit paths to match your local installations, then:
-perflab doctor --tool-config tools.local.json --json
-```
+## Development
 
-Explicit paths are probed, not silently replaced. The Google Benchmark prefix is
-a build hint; runtime collection requires a registered benchmark target.
-
-`scripts/env.sh` exposes the local executable and Hyperfine directory for this
-shell only. Re-run installation after code changes. For development:
-`PYTHONPATH=src python3.11 -m cppperflab ...`. Standard pip packaging is also
-declared in `pyproject.toml` (requires setuptools/wheel); it is not needed for the
-offline installation. Native Windows execution is not implemented.
-
-## Reproduce the independent C++ examples
-
-To connect your own project, follow the
-[project onboarding guide (使用者与 Agent)](docs/project-onboarding.md).
-It covers build/oracle preparation, configuration, execution semantics and acceptance.
+Select tests relevant to the change, for example:
 
 ```bash
-cmake --preset profile
-cmake --build --preset profile
-ctest --test-dir build/profile --output-on-failure
-python3.11 scripts/make_examples.py
-perflab workloads list --json
-perflab plan --config workloads/locality-baseline.json --json
-perflab run --config workloads/locality-baseline.json --json
-perflab run --config workloads/locality-candidate.json --json
-perflab history --json
-perflab compare BASELINE_ID CANDIDATE_ID --json
-perflab run --config workloads/cpu-profile.json --json
-perflab run --config workloads/heap-profile.json --json
-perflab analyze RUN_ID --json
-perflab report RUN_ID --format json
-perflab baseline accepted-locality-v1 RUN_ID --json
+PYTHONPATH=src:tests python3.11 -m unittest test_views -q
 ```
 
-The supplied C++ project is independently buildable with
-`cmake -S examples/cpp -B /tmp/cppperflab-external -DCMAKE_BUILD_TYPE=RelWithDebInfo`.
-An external executable is configured solely through `target.argv`, build
-metadata and its independent correctness command; no target integration is needed.
-See [protocol](docs/protocol.md) for paths, inputs and comparison semantics.
+Native examples use CMake; building them is an explicit operation. Measurement
+availability depends on the installed tool, platform, hardware, and permissions.
+See [local dependencies](guides/downloads.md) and the [usage guide](USAGE.md).
 
-For ordinary-program phase records, lightweight C++ scopes and non-executing
-execution-budget previews, see [phase observation](docs/phase-observation.md).
-For complete exported input capture and an optional C++17 function/class adapter,
-see [sample replay](docs/sample-capture.md) and the
-[file-case framework](docs/file-case-framework.md). Both reuse ordinary runs,
-metrics, correctness, comparison and reports. No business rebuild is implied.
-The full feedback implementation scope is tracked in
-[the implementation checklist](docs/feedback-implementation.md).
+## License and scope
 
-For human and Agent handoff, `perflab report ID --format both --output results/report`
-exports an offline HTML report and compact `report.agent.json` from one analysis.
-Use `--kind study|comparison|summary` for other record types. See
-[dual reports and progressive queries](docs/analysis-views.md).
-
-## Algorithm experiments
-
-```bash
-perflab study --config workloads/algorithm-study.json --json
-```
-
-A study varies one declared input feature and several prebuilt algorithm
-implementations. It invokes the same `run` API, archives ordinary experiment IDs,
-randomizes execution order with a recorded seed and enforces an experiment budget.
-Growth models use nonnegative affine fits and leave-one-out prediction error.
-Model ranking is empirical evidence over the measured range, **not a Big-O proof**.
-Correctness failures reject candidates without assigning a performance score.
-
-Current study execution is a finite evaluation matrix, not an evolutionary
-optimizer or mature automatic tuner. It does not compile or execute unreviewed
-generated source. Resource limits and separate working directories are **not a
-security sandbox**; filesystem/network isolation requires an external boundary.
-
-For named pipeline stages, work counters and fixed-work thread scaling, see
-[scientific workload experiments](docs/scientific-performance.md). For structured
-solver logs, convergence history and independent per-solve acceptance, see
-[solver validation](docs/solver-validation.md).
-
-Serial random AB/BA and ABBA designs, full execution budgets and block-preserving
-statistics are available through [paired studies](docs/paired-studies.md). They
-reuse ordinary runs and Comparison; ordinary `compare` remains unpaired.
-
-For one preregistered workflow combining process/stage timing, actual work and
-memory gates, see [joint assessment](docs/joint-assessment.md). It composes the
-existing paired/case Studies and verifies case/variant file identity across
-profilers, while keeping native and instrumented measurements separate.
-
-Optional [runtime identity observation](docs/runtime-identity.md) records actual
-executables and executable file mappings, including dynamically loaded modules.
-Explicit path/hash expectations can reject stale library loading even when output
-correctness passes. Periodic snapshots retain their coverage and overhead limits.
-
-Optional [sampling interpretability](docs/sampling-interpretability.md) checks the
-selected symbolizer/call-graph prerequisites and profiles the existing preflight
-when requested. `perflab profile RUN_ID --measurement 0 --phase-path '["model","kernel_a"]' --json`
-selects archived CPU samples by explicitly correlated phase/thread windows and
-reports selected/whole period denominators and unresolved shares. It does not
-infer waiting or exact function duration from CPU samples.
-
-## Interfaces and evidence
-
-For existing program logs, [phase log mapping](docs/phase-log-mapping.md) accepts
-format templates or field keywords. `perflab phases import --config map.json
---input run.log --output stages.phases.json --json` converts without executing a
-target; `measurement.phase_import` attaches the same conversion to the existing
-run. Original logs and mappings remain traceable, with missing fields preserved.
-
-Use `perflab status RUN_ID --json` to view process liveness, recorded build identity
-and candidate disposition together. Use `perflab status STUDY_ID --kind study --json`
-to inspect nested Study and run progress through persisted child links. [Run and Study
-status](docs/run-status.md) documents opt-in progress, ETA limits, artifact verification
-and revision-controlled `annotate` commands. Live progress writes have unquantified
-measurement interference and require an explicit high-overhead diagnostic path.
-
-Agent queries and offline human reports use one shared analysis view:
-
-```bash
-perflab analyze RUN_ID --section metrics --json
-perflab analyze RUN_ID --section hotspots --symbol kernel --limit 10 --json
-perflab evidence RUN_ID --path measurement-000/perf-report.txt --limit 80 --json
-perflab report RUN_ID --format html --output results/run.html --json
-perflab compare BASELINE_ID CANDIDATE_ID --format html --output results/compare.html --json
-perflab report STUDY_ID --kind study --format html --output results/growth.html --json
-```
-
-See [analysis views and local tool configuration](docs/analysis-views.md) for
-query pagination, evidence integrity, comparison failure semantics and HTML controls.
-`analyze` defaults to an overview; use `--section all` for the complete view.
-
-Dimension-wise summaries separate work reduction, resource use, instruction
-quality, timing and correctness. Missing measurements remain explicit gaps:
-
-```bash
-perflab analyze RUN_ID --section summary --json
-perflab summarize --comparison INSTRUCTION_COMPARISON_ID \
-  --comparison TIME_COMPARISON_ID --format html --output /tmp/perflab-summary.html --json
-perflab analyze SUMMARY_ID --kind summary --section summary --json
-```
-
-See [multi-metric summaries](docs/performance-summary.md) for paired-counter IPC,
-independent conclusions, numeric/SIMD coverage and empirical growth expressions.
-
-`perflab schema request|result|envelope --json` exposes versioned JSON schemas.
-Request configuration is JSON; YAML is deliberately not supported in v1.
-`--json` returns `{schema_version, ok, result, error}`. Errors have categories,
-details and stable exit codes. Run IDs identify immutable experiment directories
-under `.perflab/runs`; probes, studies and comparisons refer to those same runs.
-Full results, command stdout/stderr, tool-native data and SHA-256 inventories remain
-available even after target failures, timeouts or cancellation.
-
-Implemented adapters and their authoritative capability descriptions are queried
-with `tools list`; only a successful `tools probe` establishes collection and
-parsing on this machine. A probe does not prove a particular target is compatible.
-Hyperfine performs low-overhead repeated process timing; perf counts events or
-samples CPU stacks; Massif observes heap snapshots. Their timing scopes are not
-interchangeable. Unknown counters are not replaced with guessed values.
-
-The platform returns evidence and hypotheses, never an automatic code change.
-`compare` rejects changed conditions and reports raw samples, variability and a
-descriptive bootstrap interval. Fewer than seven samples or CV above 10% yields
-`inconclusive`; those explicit initial policies are documented in each comparison.
-Even an observed improvement requires an interleaved A/B rerun and oracle review
-before accepting a production optimization.
-
-## Development and Agent usage
-
-```bash
-PYTHONPATH=src python3.11 -m unittest discover -s tests -v
-cmake --preset check
-cmake --build --preset check
-ctest --preset check
-```
-
-[AGENTS.md](AGENTS.md) routes compatible Agents to the single
-[C++ Algorithm Performance Engineering Skill](skills/cpp-performance/SKILL.md).
-The session's `.agents` directory is read-only: AGENTS routing is used instead of
-claiming automatic skill-catalog registration. See [architecture](docs/architecture.md),
-[tool selection](docs/tool-selection.md)
-and [acceptance evidence](docs/acceptance.md) for decisions and verified scope.
-
-## Boundaries
-
-- Commands execute with the invoking user's permissions. No sudo, network installer,
-  runtime allocator replacement, fast-math, compiler rebuild or business-repo write.
-- Workloads must terminate their children; daemonization/session escape is unsupported.
-- Whole-process timing includes exec/startup. Python planning and parsing are outside
-  tool timing; launcher elapsed time is diagnostic only.
-- WSL host load, power management and virtual PMU accuracy are not controlled.
-- CTest-specific result parsing, Heaptrack, Tracy, Perfetto, Caliper,
-  Thicket, LLVM optimizers, tuning/evolution engines and MCP are not implemented adapters.
-  CTest can already be used as a declared correctness command with its exit status.
-
-Platform source is MIT licensed. External executables retain their own licenses;
-they are optional tools rather than bundled runtime dependencies.
-
-Google Benchmark v1.9.4 integrated-target timing is verified; build steps are in
-[local dependencies](docs/downloads.md), and verification scope is in
-[acceptance](docs/acceptance.md).
-
-## Core metrics and configurable acceptance
-
-`perflab metrics --domain D01 --json` queries implemented metric semantics and providers.
-`analyze RUN_ID --section observations` exposes six-state evidence and same-sample
-IPC/CPI/branch formulas. `compare A B --policy POLICY.json` applies explicit acceptance
-gates through the existing comparison engine. See [core metrics](docs/core-metrics.md)
-for protocols, actual commands, compatibility and the serial validation driver.
-
-[D01–D05 callable extensions](docs/domains-1-5.md) document instrumented call/heap profiles, modeled cache analysis, explicit Kernel work rates and shared-run time/space growth. Reproduce with `scripts/validate_domains_1_5.py` after an explicit example build.
+Platform source is MIT licensed; external tools retain their own licenses. The
+platform does not automatically modify or rebuild consuming projects. Process
+controls are not a security sandbox for untrusted code. A passing correctness or
+regression gate does not by itself establish a performance improvement.

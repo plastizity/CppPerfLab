@@ -4,7 +4,7 @@ Before an expensive run, use `budget --config ... --json`. This performs no prob
 or target execution. Inspect oracle/preflight/warmup/measurement/validator counts;
 unknown internal oracle work or adaptive iterations are not zero. `plan` still probes.
 
-For ordinary programs, read `docs/phase-observation.md` and `schema phases`.
+For ordinary programs, read `guides/phase-observation.md` and `schema phases`.
 Use measurement.phase_report only when the reviewed target writes one report per
 nonbatch execution. Preserve original logs and obtain the business-format mapping
 from the consuming project; do not infer a proprietary log grammar or embed names.
@@ -23,4 +23,4 @@ Serial paired/block execution is covered by [paired studies](paired.md).
 For complete input retention and isolated C++ adapters read [file cases](file-cases.md).
 For a single cross-profiler result with explicit resource gates, read
 [joint assessment](joint-assessment.md). The complete feedback worklist is in
-docs/feedback-implementation.md.
+docs/history/feedback-implementation.md.

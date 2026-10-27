@@ -77,5 +77,5 @@ Missing or `not_checked` correctness is not a passing validation result. Keep
 the run's independent correctness oracle as a hard gate. The phase report is
 one evidence source for analysis; it cannot alone prove end-to-end speedup.
 Inspect phase summaries using `perflab analyze RUN_ID --section phase_summaries
---json` or the HTML report. See [the user guide](../../../docs/phase-log-mapping.md)
+--json` or the HTML report. See [the user guide](../../../guides/phase-log-mapping.md)
 for examples and experiment configuration.

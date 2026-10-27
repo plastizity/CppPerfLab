@@ -36,7 +36,7 @@ local result files is sufficient for the current scale, so SQLite is unnecessary
 Agent queries select sections from that projection; `html_report` renders the same
 values, without a second statistics pipeline. Failed comparisons are archived as
 explicit failures. `tool_config` scopes project-local path configuration to one
-operation; installed paths still require actual probes. See `analysis-views.md`.
+operation; installed paths still require actual probes. See `../guides/analysis-views.md`.
 
 ## Decisions
 
